@@ -2400,6 +2400,8 @@ public class MatroskaExtractor implements Extractor {
 
     private static final int DISPLAY_UNIT_PIXELS = 0;
     private static final int MAX_CHROMATICITY = 50_000; // Defined in CTA-861.3.
+    // CTA-861.3 stores minimum mastering luminance in units of 0.0001 cd/m2.
+    private static final int MIN_MASTERING_LUMINANCE_SCALE = 10_000;
 
     /** Default max content light level (CLL) that should be encoded into hdrStaticInfo. */
     private static final int DEFAULT_MAX_CLL = 1000; // nits.
@@ -2909,7 +2911,8 @@ public class MatroskaExtractor implements Extractor {
       hdrStaticInfo.putShort((short) ((whitePointChromaticityX * MAX_CHROMATICITY) + 0.5f));
       hdrStaticInfo.putShort((short) ((whitePointChromaticityY * MAX_CHROMATICITY) + 0.5f));
       hdrStaticInfo.putShort((short) (maxMasteringLuminance + 0.5f));
-      hdrStaticInfo.putShort((short) (minMasteringLuminance + 0.5f));
+      hdrStaticInfo.putShort(
+          (short) ((minMasteringLuminance * MIN_MASTERING_LUMINANCE_SCALE) + 0.5f));
       hdrStaticInfo.putShort((short) maxContentLuminance);
       hdrStaticInfo.putShort((short) maxFrameAverageLuminance);
       return hdrStaticInfoData;
