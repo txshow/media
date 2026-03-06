@@ -508,6 +508,7 @@ This release includes the following changes since [1.10.0](#1100-2026-03-25):
         MIME types and move HDR and codec score preferences to quality
         preferences ([#3135](https://github.com/androidx/media/issues/3135)).
 *   Extractors:
+    *   Matroska: Use codec bitstream metadata to populate accurate `ColorInfo`.
     *   MPEG-TS: Add Dolby Vision support in HLS/TS streams. The extractor now
         detects the `DOVI` registration descriptor and the `0xB0` Dolby Vision
         video descriptor in the PMT, and routes HEVC-based Dolby Vision
