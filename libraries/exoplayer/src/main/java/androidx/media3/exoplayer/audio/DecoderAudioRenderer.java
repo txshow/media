@@ -44,6 +44,7 @@ import androidx.media3.common.audio.AudioProcessor;
 import androidx.media3.common.util.Log;
 import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
+import androidx.media3.common.util.Util;
 import androidx.media3.decoder.CryptoConfig;
 import androidx.media3.decoder.Decoder;
 import androidx.media3.decoder.DecoderException;
@@ -189,6 +190,7 @@ public abstract class DecoderAudioRenderer<
 
   @Nullable private Renderer.WakeupListener wakeupListener;
   private @MonotonicNonNull Executor playbackThreadExecutor;
+  private long audioOffsetUs;
 
   public DecoderAudioRenderer() {
     this(/* eventHandler= */ null, /* eventListener= */ null);
@@ -522,8 +524,9 @@ public abstract class DecoderAudioRenderer<
       audioTrackNeedsConfigure = false;
     }
 
+    long audioPresentationTimeUs = getAudioPresentationTimeUs(outputBuffer.timeUs);
     if (audioSink.handleBuffer(
-        outputBuffer.data, outputBuffer.timeUs, /* encodedAccessUnitCount= */ 1)) {
+        outputBuffer.data, audioPresentationTimeUs, /* encodedAccessUnitCount= */ 1)) {
       decoderCounters.renderedOutputBufferCount++;
       outputBuffer.release();
       outputBuffer = null;
@@ -531,7 +534,7 @@ public abstract class DecoderAudioRenderer<
     } else {
       // Downstream buffers are full, set nextBufferToWritePresentationTimeUs to the presentation
       // time of the current 'to be written' sample.
-      nextBufferToWritePresentationTimeUs = outputBuffer.timeUs;
+      nextBufferToWritePresentationTimeUs = audioPresentationTimeUs;
     }
 
     return false;
@@ -821,6 +824,9 @@ public abstract class DecoderAudioRenderer<
       case MSG_SET_WAKEUP_LISTENER:
         wakeupListener = (Renderer.WakeupListener) message;
         break;
+      case MSG_SET_AUDIO_OFFSET:
+        setAudioOffsetMs((Long) checkNotNull(message));
+        break;
       case MSG_SET_CAMERA_MOTION_LISTENER:
       case MSG_SET_CHANGE_FRAME_RATE_STRATEGY:
       case MSG_SET_SCALING_MODE:
@@ -977,6 +983,16 @@ public abstract class DecoderAudioRenderer<
               : max(currentPositionUs, newCurrentPositionUs);
       allowPositionDiscontinuity = false;
     }
+  }
+
+  private void setAudioOffsetMs(long audioOffsetMs) {
+    audioOffsetUs = Util.msToUs(audioOffsetMs);
+    audioSink.handleDiscontinuity();
+    allowPositionDiscontinuity = true;
+  }
+
+  private long getAudioPresentationTimeUs(long rendererPresentationTimeUs) {
+    return rendererPresentationTimeUs + audioOffsetUs;
   }
 
   private final class AudioSinkListener implements AudioSink.Listener {

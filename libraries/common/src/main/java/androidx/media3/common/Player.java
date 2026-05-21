@@ -569,10 +569,12 @@ public interface Player {
                   COMMAND_GET_TIMELINE,
                   COMMAND_GET_METADATA,
                   COMMAND_GET_AUDIO_ATTRIBUTES,
+                  COMMAND_GET_AUDIO_OFFSET,
                   COMMAND_GET_VOLUME,
                   COMMAND_GET_DEVICE_VOLUME,
                   COMMAND_GET_TEXT,
-                  COMMAND_GET_TRACKS)
+                  COMMAND_GET_TRACKS,
+                  COMMAND_GET_TEXT_OFFSET)
               .build();
 
       private static final FlagSet SUPPORTED_WRITE_COMMANDS =
@@ -602,8 +604,10 @@ public interface Player {
                   COMMAND_ADJUST_DEVICE_VOLUME,
                   COMMAND_ADJUST_DEVICE_VOLUME_WITH_FLAGS,
                   COMMAND_SET_AUDIO_ATTRIBUTES,
+                  COMMAND_SET_AUDIO_OFFSET,
                   COMMAND_SET_VIDEO_SURFACE,
                   COMMAND_SET_TRACK_SELECTION_PARAMETERS,
+                  COMMAND_SET_TEXT_OFFSET,
                   COMMAND_RELEASE)
               .build();
 
@@ -1769,6 +1773,8 @@ public interface Player {
    *   <li>{@link #COMMAND_SET_MEDIA_ITEM}
    *   <li>{@link #COMMAND_CHANGE_MEDIA_ITEMS}
    *   <li>{@link #COMMAND_GET_AUDIO_ATTRIBUTES}
+   *   <li>{@link #COMMAND_GET_AUDIO_OFFSET}
+   *   <li>{@link #COMMAND_SET_AUDIO_OFFSET}
    *   <li>{@link #COMMAND_GET_VOLUME}
    *   <li>{@link #COMMAND_GET_DEVICE_VOLUME}
    *   <li>{@link #COMMAND_SET_VOLUME}
@@ -1781,6 +1787,8 @@ public interface Player {
    *   <li>{@link #COMMAND_GET_TEXT}
    *   <li>{@link #COMMAND_SET_TRACK_SELECTION_PARAMETERS}
    *   <li>{@link #COMMAND_GET_TRACKS}
+   *   <li>{@link #COMMAND_GET_TEXT_OFFSET}
+   *   <li>{@link #COMMAND_SET_TEXT_OFFSET}
    *   <li>{@link #COMMAND_RELEASE}
    * </ul>
    */
@@ -1815,6 +1823,8 @@ public interface Player {
     COMMAND_SET_MEDIA_ITEM,
     COMMAND_CHANGE_MEDIA_ITEMS,
     COMMAND_GET_AUDIO_ATTRIBUTES,
+    COMMAND_GET_AUDIO_OFFSET,
+    COMMAND_SET_AUDIO_OFFSET,
     COMMAND_GET_VOLUME,
     COMMAND_GET_DEVICE_VOLUME,
     COMMAND_SET_VOLUME,
@@ -1827,6 +1837,8 @@ public interface Player {
     COMMAND_GET_TEXT,
     COMMAND_SET_TRACK_SELECTION_PARAMETERS,
     COMMAND_GET_TRACKS,
+    COMMAND_GET_TEXT_OFFSET,
+    COMMAND_SET_TEXT_OFFSET,
     COMMAND_RELEASE,
   })
   @interface Command {}
@@ -2226,6 +2238,38 @@ public interface Player {
    * #isCommandAvailable(int) available}.
    */
   int COMMAND_GET_TRACKS = 30;
+
+  /**
+   * Command to get the current text display offset.
+   *
+   * <p>The {@link #getTextOffsetMs()} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_GET_TEXT_OFFSET = 36;
+
+  /**
+   * Command to set the text display offset.
+   *
+   * <p>The {@link #setTextOffsetMs(long)} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_SET_TEXT_OFFSET = 37;
+
+  /**
+   * Command to get the current audio display offset.
+   *
+   * <p>The {@link #getAudioOffsetMs()} method must only be called if this command is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_GET_AUDIO_OFFSET = 38;
+
+  /**
+   * Command to set the audio display offset.
+   *
+   * <p>The {@link #setAudioOffsetMs(long)} method must only be called if this command is
+   * {@linkplain #getAvailableCommands() available}.
+   */
+  @UnstableApi int COMMAND_SET_AUDIO_OFFSET = 39;
 
   /**
    * Command to release the player.
@@ -3321,6 +3365,58 @@ public interface Player {
    */
   @FloatRange(from = 0, to = 1.0)
   float getVolume();
+
+  /**
+   * Sets the audio playback offset in milliseconds.
+   *
+   * <p>A positive value delays audio. A negative value plays audio earlier.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_AUDIO_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   *
+   * @param audioOffsetMs The audio playback offset, in milliseconds.
+   */
+  @UnstableApi
+  default void setAudioOffsetMs(long audioOffsetMs) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Returns the audio playback offset in milliseconds.
+   *
+   * <p>This method must only be called if {@link #COMMAND_GET_AUDIO_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  default long getAudioOffsetMs() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Sets the text display offset in milliseconds.
+   *
+   * <p>A positive value delays subtitles. A negative value shows subtitles earlier.
+   *
+   * <p>This method must only be called if {@link #COMMAND_SET_TEXT_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   *
+   * @param textOffsetMs The text display offset, in milliseconds.
+   */
+  @UnstableApi
+  default void setTextOffsetMs(long textOffsetMs) {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Returns the text display offset in milliseconds.
+   *
+   * <p>This method must only be called if {@link #COMMAND_GET_TEXT_OFFSET} is {@linkplain
+   * #getAvailableCommands() available}.
+   */
+  @UnstableApi
+  default long getTextOffsetMs() {
+    throw new UnsupportedOperationException();
+  }
 
   /**
    * Sets the audio volume to 0.

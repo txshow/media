@@ -154,6 +154,7 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
   private long nextBufferToWritePresentationTimeUs;
   private long firstNotReadyTimeMs;
   private boolean hasBeenReady;
+  private long audioOffsetUs;
 
   /**
    * @param context A context.
@@ -1053,6 +1054,9 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
       case MSG_SET_AUDIO_OUTPUT_PROVIDER:
         audioSink.setAudioOutputProvider((AudioOutputProvider) checkNotNull(message));
         break;
+      case MSG_SET_AUDIO_OFFSET:
+        setAudioOffsetMs((Long) checkNotNull(message));
+        break;
       default:
         super.handleMessage(messageType, message);
         break;
@@ -1225,6 +1229,12 @@ public class MediaCodecAudioRenderer extends MediaCodecRenderer implements Media
               : max(currentPositionUs, newCurrentPositionUs);
       allowPositionDiscontinuity = false;
     }
+  }
+
+  private void setAudioOffsetMs(long audioOffsetMs) {
+    audioOffsetUs = Util.msToUs(audioOffsetMs);
+    audioSink.handleDiscontinuity();
+    allowPositionDiscontinuity = true;
   }
 
   /**
