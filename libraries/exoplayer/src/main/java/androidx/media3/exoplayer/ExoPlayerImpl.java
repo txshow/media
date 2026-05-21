@@ -3281,7 +3281,14 @@ import java.util.function.IntConsumer;
     }
     MediaItem mediaItem = timeline.getWindow(getCurrentMediaItemIndex(), window).mediaItem;
     // MediaItem metadata is prioritized over metadata within the media.
-    return staticAndDynamicMediaMetadata.buildUpon().populate(mediaItem.mediaMetadata).build();
+    MediaMetadata.Builder mediaMetadataBuilder =
+        staticAndDynamicMediaMetadata.buildUpon().populate(mediaItem.mediaMetadata);
+    if (mediaItem.mediaMetadata.artworkData == null
+        && staticAndDynamicMediaMetadata.artworkData != null) {
+      mediaMetadataBuilder.setArtworkData(
+          staticAndDynamicMediaMetadata.artworkData, staticAndDynamicMediaMetadata.artworkDataType);
+    }
+    return mediaMetadataBuilder.build();
   }
 
   private void removeSurfaceCallbacks() {
