@@ -56,6 +56,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.StringReader;
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -313,13 +314,18 @@ public final class HlsPlaylistParser implements ParsingLoadable.Parser<HlsPlayli
 
   private final HlsMultivariantPlaylist multivariantPlaylist;
   @Nullable private final HlsMediaPlaylist previousMediaPlaylist;
+  private final boolean adblock;
+
+  public HlsPlaylistParser() {
+    this(false);
+  }
 
   /**
    * Creates an instance where media playlists are parsed without inheriting attributes from a
    * multivariant playlist.
    */
-  public HlsPlaylistParser() {
-    this(HlsMultivariantPlaylist.EMPTY, /* previousMediaPlaylist= */ null);
+  public HlsPlaylistParser(boolean adblock) {
+    this(HlsMultivariantPlaylist.EMPTY, /* previousMediaPlaylist= */ null, adblock);
   }
 
   /**
@@ -334,8 +340,25 @@ public final class HlsPlaylistParser implements ParsingLoadable.Parser<HlsPlayli
   public HlsPlaylistParser(
       HlsMultivariantPlaylist multivariantPlaylist,
       @Nullable HlsMediaPlaylist previousMediaPlaylist) {
+    this(multivariantPlaylist, previousMediaPlaylist, /* adblock= */ false);
+  }
+
+  /**
+   * Creates an instance where parsed media playlists inherit attributes from the given multivariant
+   * playlist.
+   *
+   * @param multivariantPlaylist The multivariant playlist from which media playlists will inherit
+   *     attributes.
+   * @param previousMediaPlaylist The previous media playlist from which the new media playlist may
+   *     inherit skipped segments.
+   */
+  public HlsPlaylistParser(
+      HlsMultivariantPlaylist multivariantPlaylist,
+      @Nullable HlsMediaPlaylist previousMediaPlaylist,
+      boolean adblock) {
     this.multivariantPlaylist = multivariantPlaylist;
     this.previousMediaPlaylist = previousMediaPlaylist;
+    this.adblock = adblock;
   }
 
   @Override
@@ -349,6 +372,16 @@ public final class HlsPlaylistParser implements ParsingLoadable.Parser<HlsPlayli
         throw ParserException.createForMalformedManifest(
             /* message= */ "Input does not start with the #EXTM3U header.", /* cause= */ null);
       }
+
+      if (adblock) {
+        StringBuilder sb = new StringBuilder();
+        while ((line = reader.readLine()) != null) {
+          sb.append(line).append("\n");
+        }
+        String m3u8 = HlsAdsParser.process(sb.toString());
+        reader = new BufferedReader(new StringReader(m3u8));
+      }
+
       while ((line = reader.readLine()) != null) {
         line = line.trim();
         if (line.isEmpty()) {
@@ -405,7 +438,8 @@ public final class HlsPlaylistParser implements ParsingLoadable.Parser<HlsPlayli
 
   private static int skipIgnorableWhitespace(BufferedReader reader, boolean skipLinebreaks, int c)
       throws IOException {
-    while (c != -1 && Character.isWhitespace(c) && (skipLinebreaks || !Util.isLinebreak(c))) {
+    while (c == 0xFEFF
+        || (c != -1 && Character.isWhitespace(c) && (skipLinebreaks || !Util.isLinebreak(c)))) {
       c = reader.read();
     }
     return c;
