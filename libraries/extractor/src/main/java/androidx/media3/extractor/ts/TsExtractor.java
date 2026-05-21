@@ -781,7 +781,7 @@ public final class TsExtractor implements Extractor {
         }
         remainingEntriesLength -= esInfoLength + 5;
 
-        int trackId = mode == MODE_HLS ? streamType : elementaryPid;
+        int trackId = elementaryPid;
         if (trackIds.get(trackId)) {
           continue;
         }
