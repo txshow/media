@@ -65,6 +65,7 @@ dependencies {
   implementation(project(":lib-exoplayer-smoothstreaming"))
   implementation(project(":lib-ui"))
   implementation(project(":lib-datasource-cronet"))
+  implementation(project(":lib-datasource-okhttp"))
   implementation(project(":lib-exoplayer-ima"))
   "withDecoderExtensionsImplementation"(project(":lib-decoder-av1"))
   "withDecoderExtensionsImplementation"(project(":lib-decoder-ffmpeg"))
