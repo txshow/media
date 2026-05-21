@@ -57,6 +57,44 @@ import com.google.common.base.Predicate;
     }
   }
 
+  /** Scales a bitmap cue around its visual center. */
+  public static Cue scaleBitmapCue(Cue cue, float scale) {
+    if (cue.bitmap == null) {
+      return cue;
+    }
+    boolean hasWidth = cue.size != Cue.DIMEN_UNSET;
+    boolean hasHeight = cue.bitmapHeight != Cue.DIMEN_UNSET;
+    if (!hasWidth && !hasHeight) {
+      return cue;
+    }
+    Cue.Builder builder = cue.buildUpon();
+    if (hasWidth) {
+      float scaledSize = cue.size * scale;
+      builder.setSize(scaledSize);
+      if (cue.position != Cue.DIMEN_UNSET) {
+        float offset = (cue.size - scaledSize) / 2.0f;
+        if (cue.positionAnchor == Cue.ANCHOR_TYPE_START) {
+          builder.setPosition(cue.position + offset);
+        } else if (cue.positionAnchor == Cue.ANCHOR_TYPE_END) {
+          builder.setPosition(cue.position - offset);
+        }
+      }
+    }
+    if (hasHeight) {
+      float scaledHeight = cue.bitmapHeight * scale;
+      builder.setBitmapHeight(scaledHeight);
+      if (cue.line != Cue.DIMEN_UNSET && cue.lineType == Cue.LINE_TYPE_FRACTION) {
+        float offset = (cue.bitmapHeight - scaledHeight) / 2.0f;
+        if (cue.lineAnchor == Cue.ANCHOR_TYPE_START) {
+          builder.setLine(cue.line + offset, cue.lineType);
+        } else if (cue.lineAnchor == Cue.ANCHOR_TYPE_END) {
+          builder.setLine(cue.line - offset, cue.lineType);
+        }
+      }
+    }
+    return builder.build();
+  }
+
   /** Removes all styling information from {@code cue}. */
   public static void removeAllEmbeddedStyling(Cue.Builder cue) {
     cue.clearWindowColor();
@@ -90,6 +128,31 @@ import com.google.common.base.Predicate;
       removeSpansIf(
           (Spannable) checkNotNull(cue.getText()),
           span -> span instanceof AbsoluteSizeSpan || span instanceof RelativeSizeSpan);
+    }
+  }
+
+  /** Scales all embedded absolute font sizes in {@code cue}. */
+  public static void scaleEmbeddedFontSizes(Cue.Builder cue, float scale) {
+    if (cue.getTextSize() != Cue.DIMEN_UNSET) {
+      cue.setTextSize(cue.getTextSize() * scale, cue.getTextSizeType());
+    }
+    CharSequence text = cue.getText();
+    if (!(text instanceof Spanned)) {
+      return;
+    }
+    Spannable spannable = new SpannableString(text);
+    cue.setText(spannable);
+    AbsoluteSizeSpan[] spans = spannable.getSpans(0, spannable.length(), AbsoluteSizeSpan.class);
+    for (AbsoluteSizeSpan span : spans) {
+      int start = spannable.getSpanStart(span);
+      int end = spannable.getSpanEnd(span);
+      int flags = spannable.getSpanFlags(span);
+      spannable.removeSpan(span);
+      spannable.setSpan(
+          new AbsoluteSizeSpan(Math.max(1, Math.round(span.getSize() * scale)), span.getDip()),
+          start,
+          end,
+          flags);
     }
   }
 
