@@ -67,7 +67,7 @@ public final class MediaParserChunkExtractor implements ChunkExtractor {
     private boolean parseSubtitlesDuringExtraction;
 
     public Factory() {
-      subtitleParserFactory = new DefaultSubtitleParserFactory();
+      subtitleParserFactory = DefaultSubtitleParserFactory.createForExtraction();
     }
 
     @CanIgnoreReturnValue

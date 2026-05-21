@@ -34,18 +34,22 @@ import androidx.media3.extractor.ExtractorOutput;
 import androidx.media3.extractor.IndexSeekMap;
 import androidx.media3.extractor.PositionHolder;
 import androidx.media3.extractor.TrackOutput;
+import com.google.common.base.Charsets;
 import com.google.common.primitives.Ints;
 import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.regex.Pattern;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
+import org.mozilla.universalchardet.UniversalDetector;
 
 /** Generic extractor for extracting subtitles from various subtitle formats. */
 @UnstableApi
@@ -86,12 +90,16 @@ public class SubtitleExtractor implements Extractor {
   private static final int STATE_RELEASED = 5;
 
   private static final int DEFAULT_BUFFER_SIZE = 1024;
+  private static final Pattern XML_ENCODING_ATTRIBUTE =
+      Pattern.compile("(?i)^\uFEFF?(\\s*<\\?xml\\b[^>]*\\bencoding\\s*=\\s*)([\"'])[^\"']*([\"'])");
 
   private final SubtitleParser subtitleParser;
   private final CueEncoder cueEncoder;
   @Nullable private final Format format;
   private final List<Sample> samples;
   private final ParsableByteArray scratchSampleArray;
+  @Nullable private final UniversalDetector detector;
+  private final boolean inputIsTtml;
 
   private byte[] subtitleData;
   private @MonotonicNonNull TrackOutput trackOutput;
@@ -112,12 +120,35 @@ public class SubtitleExtractor implements Extractor {
    *     ExtractorOutput#endTracks()} will be called outside this extractor.
    */
   public SubtitleExtractor(SubtitleParser subtitleParser, @Nullable Format format) {
+    this(
+        subtitleParser,
+        format,
+        format != null ? format.sampleMimeType : /* inputSampleMimeType= */ null);
+  }
+
+  /**
+   * Creates an instance.
+   *
+   * @param subtitleParser The parser used for parsing the subtitle data. The extractor will reset
+   *     the parser in {@link SubtitleExtractor#release()}.
+   * @param format {@link Format} that describes subtitle data. Can be null if {@link
+   *     TrackOutput#format}, {@link ExtractorOutput#seekMap} and {@link
+   *     ExtractorOutput#endTracks()} will be called outside this extractor.
+   * @param inputSampleMimeType The MIME type of the input subtitle data, used to determine whether
+   *     charset detection is safe. This can be set when {@code format} is null.
+   */
+  public SubtitleExtractor(
+      SubtitleParser subtitleParser,
+      @Nullable Format format,
+      @Nullable String inputSampleMimeType) {
     this.subtitleParser = subtitleParser;
     cueEncoder = new CueEncoder();
     subtitleData = Util.EMPTY_BYTE_ARRAY;
     scratchSampleArray = new ParsableByteArray();
     // TODO: b/376693592 - Simplify this by taking the post-transformation Format as a parameter
     //  instead.
+    detector = shouldDetectCharset(inputSampleMimeType) ? new UniversalDetector(null) : null;
+    inputIsTtml = MimeTypes.APPLICATION_TTML.equals(inputSampleMimeType);
     this.format =
         format != null
             ? format
@@ -176,6 +207,7 @@ public class SubtitleExtractor implements Extractor {
     if (state == STATE_EXTRACTING) {
       boolean inputFinished = readFromInput(input);
       if (inputFinished) {
+        maybeConvertToUtf8();
         parseAndWriteToOutput();
         state = STATE_FINISHED;
       }
@@ -316,6 +348,36 @@ public class SubtitleExtractor implements Extractor {
         /* size= */ size,
         /* offset= */ 0,
         /* cryptoData= */ null);
+  }
+
+  private void maybeConvertToUtf8() {
+    @Nullable UniversalDetector detector = this.detector;
+    if (detector == null) {
+      return;
+    }
+    detector.reset();
+    detector.handleData(subtitleData, 0, bytesRead);
+    detector.dataEnd();
+    @Nullable String detectedCharset = detector.getDetectedCharset();
+    if (detectedCharset == null) {
+      return;
+    }
+    if (!detectedCharset.startsWith("UTF")) {
+      String utf8Text =
+          new String(subtitleData, /* offset= */ 0, bytesRead, Charset.forName(detectedCharset));
+      if (inputIsTtml) {
+        utf8Text = XML_ENCODING_ATTRIBUTE.matcher(utf8Text).replaceFirst("$1$2UTF-8$3");
+      }
+      subtitleData = utf8Text.getBytes(Charsets.UTF_8);
+      bytesRead = subtitleData.length;
+    }
+  }
+
+  private static boolean shouldDetectCharset(@Nullable String mimeType) {
+    return MimeTypes.TEXT_SSA.equals(mimeType)
+        || MimeTypes.TEXT_VTT.equals(mimeType)
+        || MimeTypes.APPLICATION_SUBRIP.equals(mimeType)
+        || MimeTypes.APPLICATION_TTML.equals(mimeType);
   }
 
   private static class Sample implements Comparable<Sample> {

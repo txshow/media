@@ -27,6 +27,7 @@ android {
 
 dependencies {
   implementation(libs.androidx.annotation)
+  implementation(libs.juniversalchardet)
   api(project(":lib-common"))
   api(project(":lib-container"))
   // TODO(b/203752187): Remove this dependency.

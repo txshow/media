@@ -165,7 +165,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   public DefaultExtractorsFactory() {
     tsMode = TsExtractor.MODE_SINGLE_PMT;
     tsTimestampSearchBytes = TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES;
-    subtitleParserFactory = new DefaultSubtitleParserFactory();
+    subtitleParserFactory = DefaultSubtitleParserFactory.createForExtraction();
     textTrackTranscodingEnabled = true;
     codecsToParseWithinGopSampleDependencies = C.VIDEO_CODEC_FLAG_H264 | C.VIDEO_CODEC_FLAG_H265;
     parseHagcMetadata = true;
