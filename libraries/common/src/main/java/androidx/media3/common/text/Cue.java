@@ -164,6 +164,23 @@ public final class Cue {
   /** Vertical left-to-right (e.g. for Mongolian). */
   public static final int VERTICAL_TYPE_LR = 2;
 
+  /** The collision avoidance behavior for this cue. */
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target({FIELD, METHOD, PARAMETER, LOCAL_VARIABLE, TYPE_USE})
+  @IntDef({COLLISION_AVOIDANCE_NONE, COLLISION_AVOIDANCE_UP, COLLISION_AVOIDANCE_DOWN})
+  @UnstableApi
+  public @interface CollisionAvoidance {}
+
+  /** Do not move this cue to avoid collisions. */
+  @UnstableApi public static final int COLLISION_AVOIDANCE_NONE = 0;
+
+  /** Move this cue upward by the minimum distance needed to avoid collisions. */
+  @UnstableApi public static final int COLLISION_AVOIDANCE_UP = 1;
+
+  /** Move this cue downward by the minimum distance needed to avoid collisions. */
+  @UnstableApi public static final int COLLISION_AVOIDANCE_DOWN = 2;
+
   /**
    * The cue text, or null if this is an image cue. Note the {@link CharSequence} may be decorated
    * with styling spans.
@@ -313,6 +330,9 @@ public final class Cue {
   /** The Z index for cue, the larger index will render above the smaller index. May be negative. */
   @UnstableApi public final int zIndex;
 
+  /** The collision avoidance behavior for this cue. */
+  @UnstableApi public final @CollisionAvoidance int collisionAvoidance;
+
   private Cue(
       @Nullable CharSequence text,
       @Nullable Alignment textAlignment,
@@ -331,7 +351,8 @@ public final class Cue {
       int windowColor,
       @VerticalType int verticalType,
       float shearDegrees,
-      int zIndex) {
+      int zIndex,
+      @CollisionAvoidance int collisionAvoidance) {
     // Exactly one of text or bitmap should be set.
     if (text == null) {
       checkNotNull(bitmap);
@@ -362,6 +383,7 @@ public final class Cue {
     this.verticalType = verticalType;
     this.shearDegrees = shearDegrees;
     this.zIndex = zIndex;
+    this.collisionAvoidance = collisionAvoidance;
   }
 
   /** Returns a new {@link Cue.Builder} initialized with the same values as this Cue. */
@@ -398,7 +420,8 @@ public final class Cue {
         && textSize == that.textSize
         && verticalType == that.verticalType
         && shearDegrees == that.shearDegrees
-        && zIndex == that.zIndex;
+        && zIndex == that.zIndex
+        && collisionAvoidance == that.collisionAvoidance;
   }
 
   @Override
@@ -421,7 +444,8 @@ public final class Cue {
         textSize,
         verticalType,
         shearDegrees,
-        zIndex);
+        zIndex,
+        collisionAvoidance);
   }
 
   /** A builder for {@link Cue} objects. */
@@ -445,6 +469,7 @@ public final class Cue {
     private @VerticalType int verticalType;
     private float shearDegrees;
     private int zIndex;
+    private @CollisionAvoidance int collisionAvoidance;
 
     public Builder() {
       text = null;
@@ -463,6 +488,7 @@ public final class Cue {
       windowColorSet = false;
       windowColor = Color.BLACK;
       verticalType = TYPE_UNSET;
+      collisionAvoidance = COLLISION_AVOIDANCE_NONE;
     }
 
     private Builder(Cue cue) {
@@ -484,6 +510,7 @@ public final class Cue {
       verticalType = cue.verticalType;
       shearDegrees = cue.shearDegrees;
       zIndex = cue.zIndex;
+      collisionAvoidance = cue.collisionAvoidance;
     }
 
     /**
@@ -835,6 +862,19 @@ public final class Cue {
       return zIndex;
     }
 
+    /** Sets the collision avoidance behavior for this Cue. */
+    @CanIgnoreReturnValue
+    public Builder setCollisionAvoidance(@CollisionAvoidance int collisionAvoidance) {
+      this.collisionAvoidance = collisionAvoidance;
+      return this;
+    }
+
+    /** Gets the collision avoidance behavior for this Cue. */
+    @Pure
+    public @CollisionAvoidance int getCollisionAvoidance() {
+      return collisionAvoidance;
+    }
+
     /** Build the cue. */
     public Cue build() {
       return new Cue(
@@ -855,7 +895,8 @@ public final class Cue {
           windowColor,
           verticalType,
           shearDegrees,
-          zIndex);
+          zIndex,
+          collisionAvoidance);
     }
   }
 
@@ -879,6 +920,7 @@ public final class Cue {
   private static final String FIELD_VERTICAL_TYPE = Util.intToStringMaxRadix(15);
   private static final String FIELD_SHEAR_DEGREES = Util.intToStringMaxRadix(16);
   private static final String FIELD_Z_INDEX = Util.intToStringMaxRadix(19);
+  private static final String FIELD_COLLISION_AVOIDANCE = Util.intToStringMaxRadix(20);
 
   /**
    * Returns a {@link Bundle} that can be serialized to bytes.
@@ -955,6 +997,7 @@ public final class Cue {
     bundle.putInt(FIELD_VERTICAL_TYPE, verticalType);
     bundle.putFloat(FIELD_SHEAR_DEGREES, shearDegrees);
     bundle.putInt(FIELD_Z_INDEX, zIndex);
+    bundle.putInt(FIELD_COLLISION_AVOIDANCE, collisionAvoidance);
     return bundle;
   }
 
@@ -1029,6 +1072,9 @@ public final class Cue {
     }
     if (bundle.containsKey(FIELD_Z_INDEX)) {
       builder.setZIndex(bundle.getInt(FIELD_Z_INDEX));
+    }
+    if (bundle.containsKey(FIELD_COLLISION_AVOIDANCE)) {
+      builder.setCollisionAvoidance(bundle.getInt(FIELD_COLLISION_AVOIDANCE));
     }
     return builder.build();
   }

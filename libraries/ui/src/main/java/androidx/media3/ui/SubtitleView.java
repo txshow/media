@@ -22,6 +22,7 @@ import static java.lang.annotation.RetentionPolicy.SOURCE;
 import android.content.Context;
 import android.content.res.Resources;
 import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.util.AttributeSet;
 import android.util.TypedValue;
 import android.view.View;
@@ -74,6 +75,13 @@ public final class SubtitleView extends FrameLayout {
         @Cue.TextSizeType int defaultTextSizeType,
         float bottomPaddingFraction,
         float bottomPosition);
+
+    /**
+     * Sets the video bounds within the subtitle view.
+     *
+     * @param videoViewport The video bounds, or an empty rect to use the output view bounds.
+     */
+    default void setVideoViewport(Rect videoViewport) {}
   }
 
   /**
@@ -125,6 +133,7 @@ public final class SubtitleView extends FrameLayout {
   private float textSizeScale;
   private float bottomPaddingFraction;
   private float bottomPosition;
+  private final Rect videoViewport;
   private boolean applyEmbeddedStyles;
   private boolean applyEmbeddedFontSizes;
 
@@ -147,6 +156,7 @@ public final class SubtitleView extends FrameLayout {
     applyEmbeddedFontSizes = true;
     textSizeScale = 1.0f;
     bottomPosition = 0;
+    videoViewport = new Rect();
 
     CanvasSubtitleOutput canvasSubtitleOutput = new CanvasSubtitleOutput(context);
     output = canvasSubtitleOutput;
@@ -161,7 +171,12 @@ public final class SubtitleView extends FrameLayout {
    * @param cues The cues to display, or null to clear the cues.
    */
   public void setCues(@Nullable List<Cue> cues) {
-    this.cues = (cues != null ? cues : Collections.emptyList());
+    List<Cue> newCues = cues != null ? new ArrayList<>(cues) : Collections.emptyList();
+    if (newCues.size() > 1) {
+      Collections.sort(
+          newCues, (firstCue, secondCue) -> Integer.compare(firstCue.zIndex, secondCue.zIndex));
+    }
+    this.cues = newCues;
     updateOutput();
   }
 
@@ -197,6 +212,7 @@ public final class SubtitleView extends FrameLayout {
     }
     innerSubtitleView = view;
     output = view;
+    output.setVideoViewport(videoViewport);
     addView(view);
   }
 
@@ -338,6 +354,17 @@ public final class SubtitleView extends FrameLayout {
   public void setBottomPosition(float bottomPosition) {
     this.bottomPosition = bottomPosition;
     updateOutput();
+  }
+
+  /* package */ void setVideoViewport(int left, int top, int right, int bottom) {
+    if (videoViewport.left == left
+        && videoViewport.top == top
+        && videoViewport.right == right
+        && videoViewport.bottom == bottom) {
+      return;
+    }
+    videoViewport.set(left, top, right, bottom);
+    output.setVideoViewport(videoViewport);
   }
 
   private float getUserCaptionFontScale() {
