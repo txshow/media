@@ -129,6 +129,7 @@ public final class Ac3Extractor implements Extractor {
   public int read(ExtractorInput input, PositionHolder seekPosition) throws IOException {
     int bytesRead = input.read(sampleData.getData(), 0, MAX_SYNC_FRAME_SIZE);
     if (bytesRead == C.RESULT_END_OF_INPUT) {
+      reader.endOfInputReached();
       return RESULT_END_OF_INPUT;
     }
 

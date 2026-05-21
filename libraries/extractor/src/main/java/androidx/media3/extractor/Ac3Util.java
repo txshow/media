@@ -28,6 +28,7 @@ import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.extractor.Ac3Util.SyncFrameInfo.StreamType;
+import java.io.IOException;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
@@ -78,6 +79,18 @@ public final class Ac3Util {
      */
     public final @StreamType int streamType;
 
+    /** E-AC-3 substream identifier, or {@link C#INDEX_UNSET} when unavailable. */
+    public final int substreamId;
+
+    /** Number of channels described by an explicit dependent E-AC-3 channel map. */
+    public final int dependentChannelCount;
+
+    /** E-AC-3 dependent-substream channel map, or zero when absent. */
+    public final int dependentChannelMap;
+
+    /** Channel locations carried by this syncframe, using the E-AC-3 channel-map bit layout. */
+    public final int channelMap;
+
     /** The audio sampling rate in Hz. */
     public final int sampleRate;
 
@@ -96,6 +109,10 @@ public final class Ac3Util {
     private SyncFrameInfo(
         @Nullable String mimeType,
         @StreamType int streamType,
+        int substreamId,
+        int dependentChannelCount,
+        int dependentChannelMap,
+        int channelMap,
         int channelCount,
         int sampleRate,
         int frameSize,
@@ -103,6 +120,10 @@ public final class Ac3Util {
         int bitrate) {
       this.mimeType = mimeType;
       this.streamType = streamType;
+      this.substreamId = substreamId;
+      this.dependentChannelCount = dependentChannelCount;
+      this.dependentChannelMap = dependentChannelMap;
+      this.channelMap = channelMap;
       this.channelCount = channelCount;
       this.sampleRate = sampleRate;
       this.frameSize = frameSize;
@@ -132,8 +153,17 @@ public final class Ac3Util {
    */
   public static final int TRUEHD_SYNCFRAME_PREFIX_LENGTH = 10;
 
+  /**
+   * The minimum number of bytes needed from the start of a TrueHD syncframe to detect Dolby Atmos.
+   * Covers bytes 0–21: frame header (4) + sync word (4) + audio params (14).
+   */
+  public static final int TRUEHD_SYNCFRAME_HEADER_SIZE = 22;
+
   /** The number of new samples per (E-)AC-3 audio block. */
   private static final int AUDIO_SAMPLES_PER_AUDIO_BLOCK = 256;
+
+  /** Maximum number of bytes needed to parse an (E-)AC-3 syncframe header. */
+  private static final int AC3_SYNCFRAME_HEADER_SIZE = 128;
 
   /** Each syncframe has 6 blocks that provide 256 new audio samples. See subsection 4.1. */
   private static final int AC3_SYNCFRAME_AUDIO_SAMPLE_COUNT = 6 * AUDIO_SAMPLES_PER_AUDIO_BLOCK;
@@ -149,6 +179,20 @@ public final class Ac3Util {
 
   /** Channel counts, indexed by acmod. */
   private static final int[] CHANNEL_COUNT_BY_ACMOD = new int[] {2, 1, 2, 3, 3, 4, 4, 5};
+
+  private static final int[] E_AC3_CHANNELS_BY_CHANMAP_BIT =
+      new int[] {1, 1, 1, 1, 1, 2, 2, 1, 1, 2, 2, 2, 1, 2, 1, 1};
+  private static final int[] E_AC3_CHANNEL_MAP_BY_ACMOD =
+      new int[] {
+        0xA000, // Dual mono: L, R.
+        0x4000, // C.
+        0xA000, // L, R.
+        0xE000, // L, C, R.
+        0xA100, // L, R, Cs.
+        0xE100, // L, C, R, Cs.
+        0xB800, // L, R, Ls, Rs.
+        0xF800 // L, C, R, Ls, Rs.
+      };
 
   /** Nominal bitrates in kbps, indexed by frmsizecod / 2. (See table 4.13.) */
   private static final int[] BITRATE_BY_HALF_FRMSIZECOD =
@@ -285,6 +329,10 @@ public final class Ac3Util {
     data.setPosition(initialPosition);
     @Nullable String mimeType;
     @StreamType int streamType = SyncFrameInfo.STREAM_TYPE_UNDEFINED;
+    int substreamId = C.INDEX_UNSET;
+    int dependentChannelCount = 0;
+    int dependentChannelMap = 0;
+    int channelMap;
     int sampleRate;
     int acmod;
     int frameSize;
@@ -309,7 +357,7 @@ public final class Ac3Util {
           streamType = SyncFrameInfo.STREAM_TYPE_UNDEFINED;
           break;
       }
-      data.skipBits(3); // substreamid
+      substreamId = data.readBits(3);
       frameSize = (data.readBits(11) + 1) * 2; // See frmsiz in subsection E.1.3.1.3.
       int fscod = data.readBits(2);
       int audioBlocks;
@@ -339,8 +387,11 @@ public final class Ac3Util {
         }
       }
       if (streamType == SyncFrameInfo.STREAM_TYPE_TYPE1 && data.readBit()) { // chanmape
-        data.skipBits(16); // chanmap
+        dependentChannelMap = data.readBits(16);
+        dependentChannelCount = getEac3ChannelCountFromChannelMap(dependentChannelMap);
       }
+      channelMap =
+          dependentChannelMap != 0 ? dependentChannelMap : getEac3ChannelMapFromAcmod(acmod, lfeon);
       if (data.readBit()) { // mixmdate
         if (acmod > 2) {
           data.skipBits(2); // dmixmod
@@ -371,49 +422,8 @@ public final class Ac3Util {
             data.skipBits(12); // mixdata
           } else if (mixdef == 3) {
             int mixdeflen = data.readBits(5);
-            if (data.readBit()) { // mixdata2e
-              data.skipBits(1 + 1 + 3); // premixcmpsel, drcsrc, premixcmpscl
-              if (data.readBit()) { // extpgmlscle
-                data.skipBits(4); // extpgmlscl
-              }
-              if (data.readBit()) { // extpgmcscle
-                data.skipBits(4); // extpgmcscl
-              }
-              if (data.readBit()) { // extpgmrscle
-                data.skipBits(4); // extpgmrscl
-              }
-              if (data.readBit()) { // extpgmlsscle
-                data.skipBits(4); // extpgmlsscl
-              }
-              if (data.readBit()) { // extpgmrsscle
-                data.skipBits(4); // extpgmrsscl
-              }
-              if (data.readBit()) { // extpgmlfescle
-                data.skipBits(4); // extpgmlfescl
-              }
-              if (data.readBit()) { // dmixscle
-                data.skipBits(4); // dmixscl
-              }
-              if (data.readBit()) { // addche
-                if (data.readBit()) { // extpgmaux1scle
-                  data.skipBits(4); // extpgmaux1scl
-                }
-                if (data.readBit()) { // extpgmaux2scle
-                  data.skipBits(4); // extpgmaux2scl
-                }
-              }
-            }
-            if (data.readBit()) { // mixdata3e
-              data.skipBits(5); // spchdat
-              if (data.readBit()) { // addspchdate
-                data.skipBits(5 + 2); // spchdat1, spchan1att
-                if (data.readBit()) { // addspdat1e
-                  data.skipBits(5 + 3); // spchdat2, spchan2att
-                }
-              }
-            }
+            // The inner mixdata fields are not needed; skip the whole length-delimited block.
             data.skipBits(8 * (mixdeflen + 2)); // mixdata
-            data.byteAlign(); // mixdatafill
           }
           if (acmod < 2) {
             if (data.readBit()) { // paninfoe
@@ -466,7 +476,7 @@ public final class Ac3Util {
       mimeType = MimeTypes.AUDIO_E_AC3;
       if (data.readBit()) { // addbsie
         int addbsil = data.readBits(6);
-        if (addbsil == 1 && data.readBits(8) == 1) { // addbsi
+        if (addbsil == 1 && data.readBits(8) == 1) {
           mimeType = MimeTypes.AUDIO_E_AC3_JOC;
         }
       }
@@ -480,7 +490,22 @@ public final class Ac3Util {
         mimeType = null;
       }
       int frmsizecod = data.readBits(6);
-      bitrate = BITRATE_BY_HALF_FRMSIZECOD[frmsizecod / 2] * 1000;
+      int halfFrmsizecod = frmsizecod / 2;
+      if (halfFrmsizecod >= BITRATE_BY_HALF_FRMSIZECOD.length) {
+        return new SyncFrameInfo(
+            null,
+            SyncFrameInfo.STREAM_TYPE_UNDEFINED,
+            C.INDEX_UNSET,
+            /* dependentChannelCount= */ 0,
+            /* dependentChannelMap= */ 0,
+            /* channelMap= */ 0,
+            /* channelCount= */ 0,
+            Format.NO_VALUE,
+            C.LENGTH_UNSET,
+            /* sampleCount= */ 0,
+            /* bitrate= */ 0);
+      }
+      bitrate = BITRATE_BY_HALF_FRMSIZECOD[halfFrmsizecod] * 1000;
       frameSize = getAc3SyncframeSize(fscod, frmsizecod);
       data.skipBits(5 + 3); // bsid, bsmod
       acmod = data.readBits(3);
@@ -498,9 +523,35 @@ public final class Ac3Util {
       sampleCount = AC3_SYNCFRAME_AUDIO_SAMPLE_COUNT;
       lfeon = data.readBit();
       channelCount = CHANNEL_COUNT_BY_ACMOD[acmod] + (lfeon ? 1 : 0);
+      channelMap = getEac3ChannelMapFromAcmod(acmod, lfeon);
     }
     return new SyncFrameInfo(
-        mimeType, streamType, channelCount, sampleRate, frameSize, sampleCount, bitrate);
+        mimeType,
+        streamType,
+        substreamId,
+        dependentChannelCount,
+        dependentChannelMap,
+        channelMap,
+        channelCount,
+        sampleRate,
+        frameSize,
+        sampleCount,
+        bitrate);
+  }
+
+  /** Returns the number of channels represented by an E-AC-3 dependent channel map. */
+  public static int getEac3ChannelCountFromChannelMap(int channelMap) {
+    int channelCount = 0;
+    for (int i = 0; i < E_AC3_CHANNELS_BY_CHANMAP_BIT.length; i++) {
+      if ((channelMap & (1 << (15 - i))) != 0) {
+        channelCount += E_AC3_CHANNELS_BY_CHANMAP_BIT[i];
+      }
+    }
+    return channelCount;
+  }
+
+  private static int getEac3ChannelMapFromAcmod(int acmod, boolean lfeon) {
+    return E_AC3_CHANNEL_MAP_BY_ACMOD[acmod] | (lfeon ? 0x0001 : 0);
   }
 
   /**
@@ -527,22 +578,92 @@ public final class Ac3Util {
   }
 
   /**
-   * Reads the number of audio samples represented by the given (E-)AC-3 syncframe. The buffer's
-   * position is not modified.
+   * Reads the number of audio samples represented by the given (E-)AC-3 syncframe or access unit.
+   * For E-AC-3, if the buffer contains multiple complete syncframes, returns the sample count for
+   * the longest non-dependent substream timeline. The buffer's position is not modified.
    *
-   * @param buffer The {@link ByteBuffer} from which to read the syncframe.
-   * @return The number of audio samples represented by the syncframe.
+   * @param buffer The {@link ByteBuffer} from which to read the syncframe or access unit.
+   * @return The number of audio samples represented by the syncframe or access unit.
    */
   public static int parseAc3SyncframeAudioSampleCount(ByteBuffer buffer) {
     // Parse the bitstream ID for AC-3 and E-AC-3 (see subsections 4.3, E.1.2 and E.1.3.1.6).
     boolean isEac3 = ((buffer.get(buffer.position() + 5) & 0xF8) >> 3) > 10;
-    if (isEac3) {
-      int fscod = (buffer.get(buffer.position() + 4) & 0xC0) >> 6;
-      int numblkscod = fscod == 0x03 ? 3 : (buffer.get(buffer.position() + 4) & 0x30) >> 4;
-      return BLOCKS_PER_SYNCFRAME_BY_NUMBLKSCOD[numblkscod] * AUDIO_SAMPLES_PER_AUDIO_BLOCK;
-    } else {
-      return AC3_SYNCFRAME_AUDIO_SAMPLE_COUNT;
+    return isEac3
+        ? parseEAc3SyncframeOrAccessUnitAudioSampleCount(buffer)
+        : AC3_SYNCFRAME_AUDIO_SAMPLE_COUNT;
+  }
+
+  /**
+   * Returns {@code format} updated to E-AC-3 JOC when the sample at {@code input} signals a Dolby
+   * Atmos presentation.
+   *
+   * <p>The input read position is not modified.
+   *
+   * @param input The input positioned at the start of an E-AC-3 sample.
+   * @param sampleSize The size of the sample data.
+   * @param format The format to update.
+   * @return The updated format, or {@code format} if the sample is not E-AC-3 JOC.
+   * @throws IOException If an error occurs peeking the input.
+   */
+  public static Format updateFormatWithEac3JocInfo(
+      ExtractorInput input, int sampleSize, Format format) throws IOException {
+    if (sampleSize < 6) {
+      return format;
     }
+    int headerSize = Math.min(sampleSize, AC3_SYNCFRAME_HEADER_SIZE);
+    byte[] sampleData = new byte[AC3_SYNCFRAME_HEADER_SIZE];
+    try {
+      if (!input.peekFully(sampleData, /* offset= */ 0, headerSize, /* allowEndOfInput= */ true)) {
+        return format;
+      }
+    } finally {
+      input.resetPeekPosition();
+    }
+    SyncFrameInfo frameInfo = parseAc3SyncframeInfo(new ParsableBitArray(sampleData));
+    return MimeTypes.AUDIO_E_AC3_JOC.equals(frameInfo.mimeType)
+        ? format.buildUpon().setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC).build()
+        : format;
+  }
+
+  private static int parseEAc3SyncframeOrAccessUnitAudioSampleCount(ByteBuffer buffer) {
+    int firstSyncframeAudioBlockCount =
+        parseEAc3SyncframeAudioBlockCount(buffer, buffer.position());
+    int[] audioBlocksBySubstreamId = new int[8];
+    int maxAudioBlockCount = 0;
+    int position = buffer.position();
+    int limit = buffer.limit();
+    while (position + 6 <= limit && hasAc3Syncword(buffer, position)) {
+      int syncframeSize = parseEAc3SyncframeSize(buffer, position);
+      if (syncframeSize < 6 || position + syncframeSize > limit) {
+        break;
+      }
+      int syncframeAudioBlockCount = parseEAc3SyncframeAudioBlockCount(buffer, position);
+      int streamType = (buffer.get(position + 2) & 0xC0) >> 6;
+      if (streamType != SyncFrameInfo.STREAM_TYPE_TYPE1) {
+        int substreamId = (buffer.get(position + 2) & 0x38) >> 3;
+        audioBlocksBySubstreamId[substreamId] += syncframeAudioBlockCount;
+        maxAudioBlockCount = Math.max(maxAudioBlockCount, audioBlocksBySubstreamId[substreamId]);
+      }
+      position += syncframeSize;
+    }
+    return (maxAudioBlockCount != 0 ? maxAudioBlockCount : firstSyncframeAudioBlockCount)
+        * AUDIO_SAMPLES_PER_AUDIO_BLOCK;
+  }
+
+  private static int parseEAc3SyncframeAudioBlockCount(ByteBuffer buffer, int offset) {
+    int fscod = (buffer.get(offset + 4) & 0xC0) >> 6;
+    int numblkscod = fscod == 0x03 ? 3 : (buffer.get(offset + 4) & 0x30) >> 4;
+    return BLOCKS_PER_SYNCFRAME_BY_NUMBLKSCOD[numblkscod];
+  }
+
+  private static int parseEAc3SyncframeSize(ByteBuffer buffer, int offset) {
+    int frameSize = (buffer.get(offset + 2) & 0x07) << 8;
+    frameSize |= buffer.get(offset + 3) & 0xFF;
+    return (frameSize + 1) * 2;
+  }
+
+  private static boolean hasAc3Syncword(ByteBuffer buffer, int offset) {
+    return (buffer.get(offset) & 0xFF) == 0x0B && (buffer.get(offset + 1) & 0xFF) == 0x77;
   }
 
   /**
@@ -599,6 +720,22 @@ public final class Ac3Util {
     // TODO: Link to specification if available.
     boolean isMlp = (buffer.get(buffer.position() + offset + 7) & 0xFF) == 0xBB;
     return 40 << ((buffer.get(buffer.position() + offset + (isMlp ? 9 : 8)) >> 4) & 0x07);
+  }
+
+  /**
+   * Returns whether a TrueHD syncframe header contains a Dolby Atmos presentation.
+   *
+   * <p>Uses the same condition as FFmpeg mlpdec.c: {@code num_substreams == 4} and the MSB of
+   * {@code substream_info} is set.
+   *
+   * @param header Byte array containing the syncframe. Must be at least {@link
+   *     #TRUEHD_SYNCFRAME_HEADER_SIZE} bytes long.
+   * @return {@code true} if this syncframe carries a Dolby Atmos presentation.
+   */
+  public static boolean isTrueHdAtmos(byte[] header) {
+    int numSubstreams = (header[20] & 0xFF) >> 4;
+    boolean substreamInfoMsbSet = (header[21] & 0x80) != 0;
+    return numSubstreams == 4 && substreamInfoMsbSet;
   }
 
   private static int getAc3SyncframeSize(int fscod, int frmsizecod) {

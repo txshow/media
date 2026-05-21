@@ -231,6 +231,9 @@ public final class MimeTypes {
    */
   @UnstableApi public static final String CODEC_E_AC3_JOC = "ec+3";
 
+  /** Codec marker for Dolby TrueHD streams that carry a Dolby Atmos presentation. */
+  @UnstableApi public static final String CODEC_TRUEHD_ATMOS = "truehd-atmos";
+
   /** Codec marker for DTS-HD MA streams that carry a DTS:X extension. */
   @UnstableApi public static final String CODEC_DTS_HD_MA_X = "dtsma-x";
 
@@ -539,6 +542,8 @@ public final class MimeTypes {
       return MimeTypes.AUDIO_E_AC3;
     } else if (codec.startsWith(CODEC_E_AC3_JOC)) {
       return MimeTypes.AUDIO_E_AC3_JOC;
+    } else if (codec.startsWith("mlpa") || codec.startsWith("truehd")) {
+      return MimeTypes.AUDIO_TRUEHD;
     } else if (codec.startsWith("ac-4") || codec.startsWith("dac4")) {
       return MimeTypes.AUDIO_AC4;
     } else if (codec.startsWith("dtsc")) {

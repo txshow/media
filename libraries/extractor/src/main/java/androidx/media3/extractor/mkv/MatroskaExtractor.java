@@ -47,6 +47,7 @@ import androidx.media3.common.util.WavUtil;
 import androidx.media3.container.DolbyVisionConfig;
 import androidx.media3.container.NalUnitUtil;
 import androidx.media3.extractor.AacUtil;
+import androidx.media3.extractor.Ac3Util;
 import androidx.media3.extractor.Av1Config;
 import androidx.media3.extractor.AvcConfig;
 import androidx.media3.extractor.ChunkIndex;
@@ -958,8 +959,8 @@ public class MatroskaExtractor implements Extractor {
           inCuesElement = false;
           for (int i = 0; i < tracks.size(); i++) {
             Track track = tracks.valueAt(i);
-            if (!track.waitingForDtsAnalysis) {
-              updateTrackFormatWithMetadata(track);
+            updateTrackFormatWithMetadata(track);
+            if (!track.waitingForSampleFormat) {
               track.assertOutputInitialized();
               track.output.format(checkNotNull(track.format));
             }
@@ -1114,9 +1115,9 @@ public class MatroskaExtractor implements Extractor {
           }
 
           if (maybeSendFormatsEarly) {
-            if (!trackItem.waitingForDtsAnalysis) {
-              updateTrackFormatWithMetadata(trackItem);
-              trackItem.assertOutputInitialized();
+            updateTrackFormatWithMetadata(trackItem);
+            trackItem.assertOutputInitialized();
+            if (!trackItem.waitingForSampleFormat) {
               trackItem.output.format(checkNotNull(trackItem.format));
             }
           }
@@ -1875,12 +1876,15 @@ public class MatroskaExtractor implements Extractor {
       return finishWriteSampleData();
     }
 
-    if (track.waitingForDtsAnalysis) {
+    if (track.waitingForSampleFormat && CODEC_ID_DTS.equals(track.codecId)) {
       checkNotNull(track.format);
       track.format = DtsUtil.updateFormatWithDtsHdInfo(input, size, track.format);
-      track.output.format(track.format);
-      track.waitingForDtsAnalysis = false;
-      maybeEndTracks();
+      finishSampleFormatAnalysis(track);
+    }
+
+    if (track.waitingForSampleFormat && CODEC_ID_E_AC3.equals(track.codecId)) {
+      track.format = Ac3Util.updateFormatWithEac3JocInfo(input, size, checkNotNull(track.format));
+      finishSampleFormatAnalysis(track);
     }
 
     TrackOutput output = track.output;
@@ -2035,6 +2039,20 @@ public class MatroskaExtractor implements Extractor {
       if (track.trueHdSampleRechunker != null) {
         checkState(sampleStrippedBytes.limit() == 0);
         track.trueHdSampleRechunker.startSample(input);
+        if (track.trueHdSampleRechunker.hasSyncFrame()) {
+          Format format = checkNotNull(track.format);
+          boolean formatChanged = false;
+          if (track.trueHdSampleRechunker.isAtmos()
+              && !MimeTypes.CODEC_TRUEHD_ATMOS.equals(format.codecs)) {
+            track.format = format.buildUpon().setCodecs(MimeTypes.CODEC_TRUEHD_ATMOS).build();
+            formatChanged = true;
+          }
+          if (track.waitingForSampleFormat) {
+            finishSampleFormatAnalysis(track);
+          } else if (formatChanged) {
+            track.output.format(checkNotNull(track.format));
+          }
+        }
       }
       while (sampleBytesRead < size) {
         int bytesWritten = writeToOutput(input, output, size - sampleBytesRead);
@@ -2350,7 +2368,7 @@ public class MatroskaExtractor implements Extractor {
       return;
     }
     for (int i = 0; i < tracks.size(); i++) {
-      if (tracks.valueAt(i).waitingForDtsAnalysis) {
+      if (tracks.valueAt(i).waitingForSampleFormat) {
         return;
       }
     }
@@ -2362,6 +2380,13 @@ public class MatroskaExtractor implements Extractor {
     track.maybeAddChaptersMetadata(chapters);
     track.maybeAddThumbnailMetadata(
         perTrackCues, durationUs, segmentContentPosition, segmentContentSize);
+  }
+
+  private void finishSampleFormatAnalysis(Track track) {
+    updateTrackFormatWithMetadata(track);
+    track.output.format(checkNotNull(track.format));
+    track.waitingForSampleFormat = false;
+    maybeEndTracks();
   }
 
   /** Passes events through to the outer {@link MatroskaExtractor}. */
@@ -2496,7 +2521,7 @@ public class MatroskaExtractor implements Extractor {
     public long codecDelayNs = 0;
     public long seekPreRollNs = 0;
     public @MonotonicNonNull TrueHdSampleRechunker trueHdSampleRechunker;
-    public boolean waitingForDtsAnalysis = false;
+    public boolean waitingForSampleFormat;
     private boolean chaptersMetadataAdded;
     private boolean thumbnailMetadataAdded;
 
@@ -2633,14 +2658,16 @@ public class MatroskaExtractor implements Extractor {
           break;
         case CODEC_ID_E_AC3:
           mimeType = MimeTypes.AUDIO_E_AC3;
+          waitingForSampleFormat = !hasContentEncryption && sampleStrippedBytes == null;
           break;
         case CODEC_ID_TRUEHD:
           mimeType = MimeTypes.AUDIO_TRUEHD;
           trueHdSampleRechunker = new TrueHdSampleRechunker();
+          waitingForSampleFormat = !hasContentEncryption && sampleStrippedBytes == null;
           break;
         case CODEC_ID_DTS:
           mimeType = MimeTypes.AUDIO_DTS; // temporary
-          waitingForDtsAnalysis = true;
+          waitingForSampleFormat = true;
           break;
         case CODEC_ID_DTS_EXPRESS:
           mimeType = MimeTypes.AUDIO_DTS_EXPRESS;

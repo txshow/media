@@ -62,6 +62,7 @@ import androidx.media3.extractor.SeekPoint;
 import androidx.media3.extractor.SniffFailure;
 import androidx.media3.extractor.TrackAwareSeekMap;
 import androidx.media3.extractor.TrackOutput;
+import androidx.media3.extractor.TrueHdSampleRechunker;
 import androidx.media3.extractor.metadata.emsg.EventMessage;
 import androidx.media3.extractor.metadata.emsg.EventMessageEncoder;
 import androidx.media3.extractor.text.SubtitleParser;
@@ -538,7 +539,7 @@ public class FragmentedMp4Extractor implements Extractor {
   public void seek(long position, long timeUs) {
     int trackCount = trackBundles.size();
     for (int i = 0; i < trackCount; i++) {
-      trackBundles.valueAt(i).resetFragmentInfo();
+      trackBundles.valueAt(i).resetForSeek();
     }
     pendingMetadataSampleInfos.clear();
     pendingMetadataSampleBytes = 0;
@@ -567,6 +568,7 @@ public class FragmentedMp4Extractor implements Extractor {
               upfrontSidxScanComplete = true;
               return Extractor.RESULT_SEEK;
             } else {
+              outputPendingTrueHdSampleMetadata();
               reorderingBufferQueue.flush();
               return Extractor.RESULT_END_OF_INPUT;
             }
@@ -604,6 +606,12 @@ public class FragmentedMp4Extractor implements Extractor {
   private void enterReadingAtomHeaderState() {
     parserState = STATE_READING_ATOM_HEADER;
     atomHeaderBytesRead = 0;
+  }
+
+  private void outputPendingTrueHdSampleMetadata() {
+    for (int i = 0; i < trackBundles.size(); i++) {
+      trackBundles.valueAt(i).outputPendingTrueHdSampleMetadata();
+    }
   }
 
   private boolean readAtomHeader(ExtractorInput input, PositionHolder seekPosition)
@@ -1750,6 +1758,8 @@ public class FragmentedMp4Extractor implements Extractor {
         input.skipFully(Mp4Box.HEADER_SIZE);
       }
 
+      trackBundle.startTrueHdSample(input);
+
       if (MimeTypes.AUDIO_AC4.equals(trackBundle.moovSampleTable.track.format.sampleMimeType)) {
         // AC4 samples need to be prefixed with a clear sample header.
         sampleBytesWritten =
@@ -1896,7 +1906,12 @@ public class FragmentedMp4Extractor implements Extractor {
       cryptoData = encryptionBox.cryptoData;
     }
 
-    output.sampleMetadata(sampleTimeUs, sampleFlags, sampleSize, 0, cryptoData);
+    if (trackBundle.trueHdSampleRechunker != null && encryptionBox == null) {
+      trackBundle.trueHdSampleRechunker.sampleMetadata(
+          output, sampleTimeUs, sampleFlags, sampleSize, /* offset= */ 0, /* cryptoData= */ null);
+    } else {
+      output.sampleMetadata(sampleTimeUs, sampleFlags, sampleSize, 0, cryptoData);
+    }
 
     // After we have the sampleTimeUs, we can commit all the pending metadata samples
     outputPendingMetadataSamples(sampleTimeUs);
@@ -2321,6 +2336,7 @@ public class FragmentedMp4Extractor implements Extractor {
     public final TrackOutput output;
     public final TrackFragment fragment;
     public final ParsableByteArray scratch;
+    @Nullable public final TrueHdSampleRechunker trueHdSampleRechunker;
 
     public TrackSampleTable moovSampleTable;
     public DefaultSampleValues defaultSampleValues;
@@ -2355,7 +2371,17 @@ public class FragmentedMp4Extractor implements Extractor {
       scratch = new ParsableByteArray();
       encryptionSignalByte = new ParsableByteArray(1);
       defaultInitializationVector = new ParsableByteArray();
-      if (DtsUtil.isDtsBaseAudioMimeType(baseFormat.sampleMimeType)) {
+      @Nullable
+      TrackEncryptionBox defaultEncryptionBox =
+          moovSampleTable.track.getSampleDescriptionEncryptionBox(
+              defaultSampleValues.sampleDescriptionIndex);
+      trueHdSampleRechunker =
+          MimeTypes.AUDIO_TRUEHD.equals(baseFormat.sampleMimeType)
+                  && (defaultEncryptionBox == null || !defaultEncryptionBox.isEncrypted)
+              ? new TrueHdSampleRechunker()
+              : null;
+      if (DtsUtil.isDtsBaseAudioMimeType(baseFormat.sampleMimeType)
+          || trueHdSampleRechunker != null) {
         pendingFormat = baseFormat;
       }
       reset(moovSampleTable, defaultSampleValues);
@@ -2364,8 +2390,57 @@ public class FragmentedMp4Extractor implements Extractor {
     public void reset(TrackSampleTable moovSampleTable, DefaultSampleValues defaultSampleValues) {
       this.moovSampleTable = moovSampleTable;
       this.defaultSampleValues = defaultSampleValues;
+      outputPendingTrueHdSampleMetadata();
       if (pendingFormat == null) {
         output.format(baseFormat);
+      }
+      if (trueHdSampleRechunker != null) {
+        trueHdSampleRechunker.reset();
+      }
+      resetFragmentInfo();
+    }
+
+    public void startTrueHdSample(ExtractorInput input) throws IOException {
+      if (trueHdSampleRechunker == null) {
+        return;
+      }
+      if (getEncryptionBoxIfEncrypted() != null) {
+        trueHdSampleRechunker.outputPendingSampleMetadata(output, /* cryptoData= */ null);
+        if (pendingFormat != null) {
+          baseFormat = pendingFormat;
+          output.format(baseFormat);
+          pendingFormat = null;
+        }
+        return;
+      }
+
+      trueHdSampleRechunker.startSample(input);
+      if (!trueHdSampleRechunker.hasSyncFrame()) {
+        return;
+      }
+      boolean shouldOutputFormat = pendingFormat != null;
+      Format sampleFormat = shouldOutputFormat ? checkNotNull(pendingFormat) : baseFormat;
+      if (trueHdSampleRechunker.isAtmos()
+          && !MimeTypes.CODEC_TRUEHD_ATMOS.equals(sampleFormat.codecs)) {
+        sampleFormat = sampleFormat.buildUpon().setCodecs(MimeTypes.CODEC_TRUEHD_ATMOS).build();
+        shouldOutputFormat = true;
+      }
+      if (shouldOutputFormat) {
+        baseFormat = sampleFormat;
+        output.format(sampleFormat);
+        pendingFormat = null;
+      }
+    }
+
+    public void outputPendingTrueHdSampleMetadata() {
+      if (trueHdSampleRechunker != null) {
+        trueHdSampleRechunker.outputPendingSampleMetadata(output, /* cryptoData= */ null);
+      }
+    }
+
+    public void resetForSeek() {
+      if (trueHdSampleRechunker != null) {
+        trueHdSampleRechunker.reset();
       }
       resetFragmentInfo();
     }
@@ -2378,9 +2453,11 @@ public class FragmentedMp4Extractor implements Extractor {
       @Nullable String schemeType = encryptionBox != null ? encryptionBox.schemeType : null;
       DrmInitData updatedDrmInitData = drmInitData.copyWithSchemeType(schemeType);
       Format format = baseFormat.buildUpon().setDrmInitData(updatedDrmInitData).build();
+      baseFormat = format;
       if (pendingFormat != null) {
         pendingFormat = format;
       } else {
+        outputPendingTrueHdSampleMetadata();
         output.format(format);
       }
     }
