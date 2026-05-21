@@ -53,9 +53,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   private static final float INNER_PADDING_RATIO = 0.125f;
 
   // Styled dimensions.
-  private final float outlineWidth;
-  private final float shadowRadius;
-  private final float shadowOffset;
+  private final float density;
   private final float spacingMult;
   private final float spacingAdd;
 
@@ -79,9 +77,13 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   private int windowColor;
   private int edgeColor;
   private @CaptionStyleCompat.EdgeType int edgeType;
+  private float outlineWidth;
+  private float shadowRadius;
+  private float shadowOffset;
   private float defaultTextSizePx;
   private float cueTextSizePx;
   private float bottomPaddingFraction;
+  private float bottomPosition;
   private int parentLeft;
   private int parentTop;
   private int parentRight;
@@ -105,10 +107,10 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 
     Resources resources = context.getResources();
     DisplayMetrics displayMetrics = resources.getDisplayMetrics();
-    int twoDpInPx = Math.round((2f * displayMetrics.densityDpi) / DisplayMetrics.DENSITY_DEFAULT);
-    outlineWidth = twoDpInPx;
-    shadowRadius = twoDpInPx;
-    shadowOffset = twoDpInPx;
+    density = displayMetrics.density;
+    outlineWidth = dpToPx(CaptionStyleCompat.DEFAULT_EDGE_WIDTH);
+    shadowRadius = dpToPx(CaptionStyleCompat.DEFAULT_SHADOW_OFFSET);
+    shadowOffset = dpToPx(CaptionStyleCompat.DEFAULT_SHADOW_OFFSET);
 
     textPaint = new TextPaint();
     textPaint.setAntiAlias(true);
@@ -149,6 +151,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       float defaultTextSizePx,
       float cueTextSizePx,
       float bottomPaddingFraction,
+      float bottomPosition,
       Canvas canvas,
       int cueBoxLeft,
       int cueBoxTop,
@@ -179,9 +182,13 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
         && this.edgeType == style.edgeType
         && this.edgeColor == style.edgeColor
         && Objects.equals(this.textPaint.getTypeface(), style.typeface)
+        && this.outlineWidth == getOutlineWidthPx(style)
+        && this.shadowRadius == getShadowRadiusPx(style)
+        && this.shadowOffset == getShadowOffsetPx(style)
         && this.defaultTextSizePx == defaultTextSizePx
         && this.cueTextSizePx == cueTextSizePx
         && this.bottomPaddingFraction == bottomPaddingFraction
+        && this.bottomPosition == bottomPosition
         && this.parentLeft == cueBoxLeft
         && this.parentTop == cueBoxTop
         && this.parentRight == cueBoxRight
@@ -207,9 +214,13 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     this.edgeType = style.edgeType;
     this.edgeColor = style.edgeColor;
     this.textPaint.setTypeface(style.typeface);
+    this.outlineWidth = getOutlineWidthPx(style);
+    this.shadowRadius = getShadowRadiusPx(style);
+    this.shadowOffset = getShadowOffsetPx(style);
     this.defaultTextSizePx = defaultTextSizePx;
     this.cueTextSizePx = cueTextSizePx;
     this.bottomPaddingFraction = bottomPaddingFraction;
+    this.bottomPosition = bottomPosition;
     this.parentLeft = cueBoxLeft;
     this.parentTop = cueBoxTop;
     this.parentRight = cueBoxRight;
@@ -357,6 +368,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       textTop = parentBottom - textHeight - (int) (parentHeight * bottomPaddingFraction);
     }
 
+    textTop = textTop - (int) (parentHeight * bottomPosition);
+
     // Update the derived drawing variables.
     this.textLayout =
         new StaticLayout(
@@ -375,7 +388,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     int parentWidth = parentRight - parentLeft;
     int parentHeight = parentBottom - parentTop;
     float anchorX = parentLeft + (parentWidth * cuePosition);
-    float anchorY = parentTop + (parentHeight * cueLine);
+    float anchorY = parentTop + (parentHeight * cueLine) - (parentHeight * bottomPosition);
     int width = Math.round(parentWidth * cueSize);
     int height =
         cueBitmapHeight != Cue.DIMEN_UNSET
@@ -457,6 +470,25 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   @RequiresNonNull({"cueBitmap", "bitmapRect"})
   private void drawBitmapLayout(Canvas canvas) {
     canvas.drawBitmap(cueBitmap, /* src= */ null, bitmapRect, bitmapPaint);
+  }
+
+  private float getOutlineWidthPx(CaptionStyleCompat style) {
+    return dpToPx(style.edgeWidth);
+  }
+
+  private float getShadowRadiusPx(CaptionStyleCompat style) {
+    return dpToPx(style.shadowOffset);
+  }
+
+  private float getShadowOffsetPx(CaptionStyleCompat style) {
+    return dpToPx(style.shadowOffset);
+  }
+
+  private float dpToPx(float dp) {
+    if (Float.isNaN(dp) || Float.isInfinite(dp) || dp <= 0f) {
+      return 0f;
+    }
+    return dp * density;
   }
 
   /**

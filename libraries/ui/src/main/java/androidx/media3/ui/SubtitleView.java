@@ -72,7 +72,8 @@ public final class SubtitleView extends FrameLayout {
         CaptionStyleCompat style,
         float defaultTextSize,
         @Cue.TextSizeType int defaultTextSizeType,
-        float bottomPaddingFraction);
+        float bottomPaddingFraction,
+        float bottomPosition);
   }
 
   /**
@@ -121,7 +122,9 @@ public final class SubtitleView extends FrameLayout {
   private CaptionStyleCompat style;
   private @Cue.TextSizeType int defaultTextSizeType;
   private float defaultTextSize;
+  private float textSizeScale;
   private float bottomPaddingFraction;
+  private float bottomPosition;
   private boolean applyEmbeddedStyles;
   private boolean applyEmbeddedFontSizes;
 
@@ -142,6 +145,8 @@ public final class SubtitleView extends FrameLayout {
     bottomPaddingFraction = DEFAULT_BOTTOM_PADDING_FRACTION;
     applyEmbeddedStyles = true;
     applyEmbeddedFontSizes = true;
+    textSizeScale = 1.0f;
+    bottomPosition = 0;
 
     CanvasSubtitleOutput canvasSubtitleOutput = new CanvasSubtitleOutput(context);
     output = canvasSubtitleOutput;
@@ -258,6 +263,7 @@ public final class SubtitleView extends FrameLayout {
   private void setTextSize(@Cue.TextSizeType int textSizeType, float textSize) {
     this.defaultTextSizeType = textSizeType;
     this.defaultTextSize = textSize;
+    this.textSizeScale = 1.0f;
     updateOutput();
   }
 
@@ -281,6 +287,18 @@ public final class SubtitleView extends FrameLayout {
   public void setApplyEmbeddedFontSizes(boolean applyEmbeddedFontSizes) {
     this.applyEmbeddedFontSizes = applyEmbeddedFontSizes;
     updateOutput();
+  }
+
+  /** Sets a scale factor applied to subtitle sizes regardless of cue format. */
+  public void setTextSizeScale(float textSizeScale) {
+    applyTextSizeScale(textSizeScale);
+    updateOutput();
+  }
+
+  private void applyTextSizeScale(float textSizeScale) {
+    defaultTextSizeType = Cue.TEXT_SIZE_TYPE_FRACTIONAL;
+    defaultTextSize = DEFAULT_TEXT_SIZE_FRACTION * textSizeScale;
+    this.textSizeScale = textSizeScale;
   }
 
   /**
@@ -317,6 +335,11 @@ public final class SubtitleView extends FrameLayout {
     updateOutput();
   }
 
+  public void setBottomPosition(float bottomPosition) {
+    this.bottomPosition = bottomPosition;
+    updateOutput();
+  }
+
   private float getUserCaptionFontScale() {
     if (isInEditMode()) {
       return 1f;
@@ -347,7 +370,8 @@ public final class SubtitleView extends FrameLayout {
         style,
         defaultTextSize,
         defaultTextSizeType,
-        bottomPaddingFraction);
+        bottomPaddingFraction,
+        bottomPosition);
   }
 
   /**
@@ -363,23 +387,36 @@ public final class SubtitleView extends FrameLayout {
    * to {@link Cue#DIMEN_UNSET}
    */
   private List<Cue> getCuesWithStylingPreferencesApplied() {
-    if (applyEmbeddedStyles && applyEmbeddedFontSizes) {
+    boolean scaleCues = textSizeScale != 1.0f;
+    if (applyEmbeddedStyles && applyEmbeddedFontSizes && !scaleCues) {
       return cues;
     }
     List<Cue> strippedCues = new ArrayList<>(cues.size());
     for (int i = 0; i < cues.size(); i++) {
-      strippedCues.add(removeEmbeddedStyling(cues.get(i)));
+      Cue cue = cues.get(i);
+      if (scaleCues) {
+        cue = SubtitleViewUtils.scaleBitmapCue(cue, textSizeScale);
+      }
+      strippedCues.add(applyEmbeddedStylingPreferences(cue));
     }
     return strippedCues;
   }
 
-  private Cue removeEmbeddedStyling(Cue cue) {
-    Cue.Builder strippedCue = cue.buildUpon();
+  private Cue applyEmbeddedStylingPreferences(Cue cue) {
+    Cue.Builder cueBuilder = cue.buildUpon();
     if (!applyEmbeddedStyles) {
-      SubtitleViewUtils.removeAllEmbeddedStyling(strippedCue);
+      SubtitleViewUtils.removeAllEmbeddedStyling(cueBuilder);
     } else if (!applyEmbeddedFontSizes) {
-      SubtitleViewUtils.removeEmbeddedFontSizes(strippedCue);
+      SubtitleViewUtils.removeEmbeddedFontSizes(cueBuilder);
+    } else if (textSizeScale != 1.0f) {
+      SubtitleViewUtils.scaleEmbeddedFontSizes(cueBuilder, textSizeScale);
     }
-    return strippedCue.build();
+    return cueBuilder.build();
+  }
+
+  public void reset() {
+    applyTextSizeScale(1.0f);
+    bottomPosition = 0;
+    updateOutput();
   }
 }
