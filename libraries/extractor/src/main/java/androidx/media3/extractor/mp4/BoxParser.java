@@ -756,10 +756,14 @@ public final class BoxParser {
           sampleCount);
     }
 
+    ImmutableLongArray editListMediaTimes = checkNotNull(track.editListMediaTimes);
+    boolean ignoreBadAudioEdit = hasBadAudioEdit(track, duration, editListMediaTimes);
     if (omitTrackSampleTable) {
       long editedDurationUs;
-      ImmutableLongArray editListMediaTimes = checkNotNull(track.editListMediaTimes);
-      if (track.editListDurations.length() == 1 && track.editListDurations.get(0) == 0) {
+      if (ignoreBadAudioEdit) {
+        editedDurationUs = durationUs;
+      } else if (track.editListDurations.length() == 1
+          && track.editListDurations.get(0) == 0) {
         long editStartTime = editListMediaTimes.get(0);
         editedDurationUs =
             Util.scaleLargeTimestamp(
@@ -793,10 +797,25 @@ public final class BoxParser {
     // handles simple discarding/delaying of samples. The extractor may place further restrictions
     // on what edited streams are playable.
 
+    if (ignoreBadAudioEdit) {
+      Util.scaleLargeTimestampsInPlace(timestamps, C.MICROS_PER_SECOND, track.timescale);
+      return new TrackSampleTable(
+          track,
+          offsets,
+          sizes,
+          maximumSize,
+          timestamps,
+          flags,
+          syncSampleIndices,
+          hasOnlySyncSamples,
+          durationUs,
+          sampleCount);
+    }
+
     if (track.editListDurations.length() == 1
         && track.type == C.TRACK_TYPE_AUDIO
         && timestamps.length >= 2) {
-      long editStartTime = checkNotNull(track.editListMediaTimes).get(0);
+      long editStartTime = editListMediaTimes.get(0);
       long editEndTime =
           editStartTime
               + Util.scaleLargeTimestamp(
@@ -838,7 +857,7 @@ public final class BoxParser {
       // The current version of the spec leaves handling of an edit with zero segment_duration in
       // unfragmented files open to interpretation. We handle this as a special case and include all
       // samples in the edit.
-      long editStartTime = checkNotNull(track.editListMediaTimes).get(0);
+      long editStartTime = editListMediaTimes.get(0);
       for (int i = 0; i < timestamps.length; i++) {
         timestamps[i] =
             Util.scaleLargeTimestamp(
@@ -871,7 +890,6 @@ public final class BoxParser {
     boolean copyMetadata = false;
     int[] startIndices = new int[track.editListDurations.length()];
     int[] endIndices = new int[track.editListDurations.length()];
-    ImmutableLongArray editListMediaTimes = checkNotNull(track.editListMediaTimes);
     for (int i = 0; i < track.editListDurations.length(); i++) {
       long editMediaTime = editListMediaTimes.get(i);
       if (editMediaTime != -1) {
@@ -1019,6 +1037,24 @@ public final class BoxParser {
       meta.setPosition(atomPosition + atomSize);
     }
     return null;
+  }
+
+  private static boolean hasBadAudioEdit(
+      Track track, long mediaDuration, ImmutableLongArray editListMediaTimes) {
+    if (track.type != C.TRACK_TYPE_AUDIO
+        || checkNotNull(track.editListDurations).length() != 1) {
+      return false;
+    }
+    long editStartTime = editListMediaTimes.get(0);
+    if (editStartTime == -1 || editStartTime >= mediaDuration) {
+      return false;
+    }
+    long editDurationInMediaTimescale =
+        Util.scaleLargeTimestamp(
+            track.editListDurations.get(0), track.timescale, track.movieTimescale);
+    long remainingMediaDuration = mediaDuration - editStartTime;
+    return editDurationInMediaTimescale
+        > remainingMediaDuration + EDIT_LIST_DURATION_TOLERANCE_TIMESCALE_UNITS;
   }
 
   @Nullable
