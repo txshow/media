@@ -300,8 +300,8 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   private final ComponentListener componentListener;
   @Nullable private final AspectRatioFrameLayout contentFrame;
   @Nullable private final View shutterView;
-  @Nullable private final View surfaceView;
-  private final boolean surfaceViewIgnoresVideoAspectRatio;
+  @Nullable private View surfaceView;
+  private boolean surfaceViewIgnoresVideoAspectRatio;
   @Nullable private final SurfaceSyncGroupCompatV34 surfaceSyncGroupV34;
   @Nullable private final ImageView imageView;
   @Nullable private final ImageView artworkView;
@@ -604,6 +604,50 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
       setClickable(true);
     }
     updateContentDescription();
+  }
+
+  public void setRender(int render) {
+    checkState(Looper.myLooper() == Looper.getMainLooper());
+    if (contentFrame == null
+        || (render == 1 && surfaceView instanceof TextureView)
+        || (render != 1
+            && surfaceView instanceof SurfaceView
+            && !(surfaceView instanceof GLSurfaceView))) {
+      return;
+    }
+    @Nullable View oldSurfaceView = surfaceView;
+    if (render == 1) {
+      surfaceView = new TextureView(getContext());
+    } else {
+      SurfaceView view = new SurfaceView(getContext());
+      if (SDK_INT >= 34) {
+        Api34.setSurfaceLifecycleToFollowsAttachment(view);
+      }
+      surfaceView = view;
+    }
+    surfaceView.setOnClickListener(componentListener);
+    surfaceView.setClickable(false);
+    surfaceView.setLayoutParams(
+        new ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    contentFrame.addView(surfaceView, 0);
+    surfaceViewIgnoresVideoAspectRatio = false;
+    if (player != null && player.isCommandAvailable(COMMAND_SET_VIDEO_SURFACE)) {
+      if (surfaceView instanceof TextureView) {
+        player.setVideoTextureView((TextureView) surfaceView);
+      } else if (surfaceView instanceof SurfaceView) {
+        player.setVideoSurfaceView((SurfaceView) surfaceView);
+      }
+      if (oldSurfaceView instanceof TextureView) {
+        player.clearVideoTextureView((TextureView) oldSurfaceView);
+      } else if (oldSurfaceView instanceof SurfaceView) {
+        player.clearVideoSurfaceView((SurfaceView) oldSurfaceView);
+      }
+      updateAspectRatio();
+    }
+    if (oldSurfaceView != null) {
+      contentFrame.removeView(oldSurfaceView);
+    }
   }
 
   /**
