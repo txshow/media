@@ -35,6 +35,7 @@ import android.content.res.TypedArray;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.opengl.GLSurfaceView;
@@ -311,6 +312,8 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable private final FrameLayout adOverlayFrameLayout;
   @Nullable private final FrameLayout overlayFrameLayout;
   private final Handler mainLooperHandler;
+  private final Rect tempContentFrameBounds;
+  private final Rect tempSubtitleViewBounds;
   @Nullable private final Class<?> exoPlayerClazz;
   @Nullable private final Method setImageOutputMethod;
   @Nullable private final Object imageOutput;
@@ -356,6 +359,8 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
 
     componentListener = new ComponentListener();
     mainLooperHandler = new Handler(Looper.getMainLooper());
+    tempContentFrameBounds = new Rect();
+    tempSubtitleViewBounds = new Rect();
 
     if (isInEditMode()) {
       contentFrame = null;
@@ -1472,6 +1477,23 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
       @Nullable AspectRatioFrameLayout contentFrame, float aspectRatio) {
     if (contentFrame != null) {
       contentFrame.setAspectRatio(aspectRatio);
+    }
+  }
+
+  @Override
+  protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+    super.onLayout(changed, left, top, right, bottom);
+    if (contentFrame != null && subtitleView != null) {
+      tempContentFrameBounds.set(0, 0, contentFrame.getWidth(), contentFrame.getHeight());
+      offsetDescendantRectToMyCoords(contentFrame, tempContentFrameBounds);
+      tempSubtitleViewBounds.set(0, 0, subtitleView.getWidth(), subtitleView.getHeight());
+      offsetDescendantRectToMyCoords(subtitleView, tempSubtitleViewBounds);
+      tempContentFrameBounds.offset(-tempSubtitleViewBounds.left, -tempSubtitleViewBounds.top);
+      subtitleView.setVideoViewport(
+          tempContentFrameBounds.left,
+          tempContentFrameBounds.top,
+          tempContentFrameBounds.right,
+          tempContentFrameBounds.bottom);
     }
   }
 
