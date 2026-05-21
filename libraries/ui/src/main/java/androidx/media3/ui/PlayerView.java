@@ -149,7 +149,7 @@ import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
  *         <li>Default: {@code never}
  *       </ul>
  *   <li><b>{@code resize_mode}</b> - Controls how video and album art is resized within the view.
- *       Valid values are {@code fit}, {@code fixed_width}, {@code fixed_height}, {@code fill} and
+ *       Valid values are {@code fit}, {@code ratio_16_9}, {@code ratio_4_3}, {@code fill} and
  *       {@code zoom}.
  *       <ul>
  *         <li>Corresponding method: {@link #setResizeMode(int)}
