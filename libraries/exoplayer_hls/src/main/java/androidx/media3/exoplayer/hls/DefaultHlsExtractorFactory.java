@@ -100,7 +100,7 @@ public final class DefaultHlsExtractorFactory implements HlsExtractorFactory {
       int payloadReaderFactoryFlags, boolean exposeCea608WhenMissingDeclarations) {
     this.payloadReaderFactoryFlags = payloadReaderFactoryFlags;
     this.exposeCea608WhenMissingDeclarations = exposeCea608WhenMissingDeclarations;
-    subtitleParserFactory = new DefaultSubtitleParserFactory();
+    subtitleParserFactory = DefaultSubtitleParserFactory.createForExtraction();
   }
 
   @Override

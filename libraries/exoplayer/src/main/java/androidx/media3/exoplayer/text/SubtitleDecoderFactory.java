@@ -92,10 +92,20 @@ public interface SubtitleDecoderFactory {
           if (delegate.supportsFormat(format)) {
             SubtitleParser subtitleParser = delegate.create(format);
             return new DelegatingSubtitleDecoder(
-                subtitleParser.getClass().getSimpleName() + "Decoder", subtitleParser);
+                subtitleParser.getClass().getSimpleName() + "Decoder",
+                subtitleParser,
+                shouldDetectCharset(mimeType),
+                Objects.equals(mimeType, MimeTypes.APPLICATION_TTML));
           }
           throw new IllegalArgumentException(
               "Attempted to create decoder for unsupported MIME type: " + mimeType);
+        }
+
+        private boolean shouldDetectCharset(@Nullable String mimeType) {
+          return Objects.equals(mimeType, MimeTypes.TEXT_SSA)
+              || Objects.equals(mimeType, MimeTypes.TEXT_VTT)
+              || Objects.equals(mimeType, MimeTypes.APPLICATION_SUBRIP)
+              || Objects.equals(mimeType, MimeTypes.APPLICATION_TTML);
         }
       };
 }

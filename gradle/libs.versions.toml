@@ -63,6 +63,7 @@ jsr305Version = "3.0.2"
 # Use the same JUnit version as the Android repo:
 # https://cs.android.com/android/platform/superproject/main/+/main:external/junit/METADATA
 junitVersion = "4.13.2"
+juniversalchardetVersion = "1.0.3"
 kotlinAnnotationsVersion = "1.9.0"
 # Not the same as kotlin version, https://github.com/Kotlin/kotlinx.coroutines/releases
 kotlinxCoroutinesVersion = "1.9.0"
@@ -75,6 +76,7 @@ playServicesCronetVersion = "18.0.1"
 playServicesTfliteVersion = "16.1.0"
 protobufVersion = "4.31.1"
 robolectricVersion = "4.16"
+smbjVersion = "0.14.0"
 testParameterInjectorVersion = "1.22"
 truthVersion = "1.4.0"
 workRuntimeVersion = "2.8.1"
@@ -140,6 +142,7 @@ guava-testlib = { group = "com.google.guava", name = "guava-testlib", version.re
 j2objc-annotations = { group = "com.google.j2objc", name = "j2objc-annotations", version.ref = "j2objcAnnotationsVersion" }
 jsr305 = { group = "com.google.code.findbugs", name = "jsr305", version.ref = "jsr305Version" }
 junit = { group = "junit", name = "junit", version.ref = "junitVersion" }
+juniversalchardet = { group = "com.googlecode.juniversalchardet", name = "juniversalchardet", version.ref = "juniversalchardetVersion" }
 kotlin-annotations-jvm = { group = "org.jetbrains.kotlin", name = "kotlin-annotations-jvm", version.ref = "kotlinAnnotationsVersion" }
 kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlinGradlePlugin" }
 kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test"}
@@ -163,6 +166,7 @@ play-services-tflite-support = { group = "com.google.android.gms", name = "play-
 protobuf-java = { group = "com.google.protobuf", name = "protobuf-java", version.ref = "protobufVersion" }
 protobuf-protoc = { group = "com.google.protobuf", name = "protoc", version.ref = "protobufVersion" }
 robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectricVersion" }
+smbj = { group = "com.hierynomus", name = "smbj", version.ref = "smbjVersion" }
 strict-version-matcher-plugin = { module = "com.google.android.gms:strict-version-matcher-plugin", version.ref = "strictVersionMatcherPlugin" }  # module name contains a colon and cannot be in [plugins]
 test-parameter-injector = { group = "com.google.testparameterinjector", name = "test-parameter-injector", version.ref = "testParameterInjectorVersion" }
 truth = { group = "com.google.truth", name = "truth", version.ref = "truthVersion" }

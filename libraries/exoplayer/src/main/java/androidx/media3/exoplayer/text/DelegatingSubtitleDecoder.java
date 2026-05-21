@@ -15,9 +15,14 @@
  */
 package androidx.media3.exoplayer.text;
 
+import androidx.annotation.Nullable;
 import androidx.media3.extractor.text.SimpleSubtitleDecoder;
 import androidx.media3.extractor.text.Subtitle;
 import androidx.media3.extractor.text.SubtitleParser;
+import com.google.common.base.Charsets;
+import java.nio.charset.Charset;
+import java.util.regex.Pattern;
+import org.mozilla.universalchardet.UniversalDetector;
 
 /**
  * Wrapper around a {@link SubtitleParser} that can be used instead of any current {@link
@@ -45,11 +50,30 @@ import androidx.media3.extractor.text.SubtitleParser;
 // deprecated and later deleted.
 /* package */ final class DelegatingSubtitleDecoder extends SimpleSubtitleDecoder {
 
+  private static final Pattern XML_ENCODING_ATTRIBUTE =
+      Pattern.compile("(?i)^\uFEFF?(\\s*<\\?xml\\b[^>]*\\bencoding\\s*=\\s*)([\"'])[^\"']*([\"'])");
+
   private final SubtitleParser subtitleParser;
+  private final UniversalDetector detector;
+  private final boolean detectCharset;
+  private final boolean inputIsTtml;
 
   public DelegatingSubtitleDecoder(String name, SubtitleParser subtitleParser) {
+    this(name, subtitleParser, /* detectCharset= */ false, /* inputIsTtml= */ false);
+  }
+
+  public DelegatingSubtitleDecoder(
+      String name, SubtitleParser subtitleParser, boolean detectCharset) {
+    this(name, subtitleParser, detectCharset, /* inputIsTtml= */ false);
+  }
+
+  public DelegatingSubtitleDecoder(
+      String name, SubtitleParser subtitleParser, boolean detectCharset, boolean inputIsTtml) {
     super(name);
+    this.detectCharset = detectCharset;
+    this.inputIsTtml = inputIsTtml;
     this.subtitleParser = subtitleParser;
+    this.detector = new UniversalDetector(null);
   }
 
   @Override
@@ -57,6 +81,29 @@ import androidx.media3.extractor.text.SubtitleParser;
     if (reset) {
       subtitleParser.reset();
     }
-    return subtitleParser.parseToLegacySubtitle(data, /* offset= */ 0, length);
+    if (!detectCharset) {
+      return subtitleParser.parseToLegacySubtitle(data, /* offset= */ 0, length);
+    }
+    byte[] convertedData = maybeConvertToUtf8(data, length);
+    int convertedLength = convertedData == data ? length : convertedData.length;
+    return subtitleParser.parseToLegacySubtitle(convertedData, /* offset= */ 0, convertedLength);
+  }
+
+  private byte[] maybeConvertToUtf8(byte[] data, int length) {
+    detector.reset();
+    detector.handleData(data, 0, length);
+    detector.dataEnd();
+    @Nullable String detectedCharset = detector.getDetectedCharset();
+    if (detectedCharset == null) {
+      return data;
+    }
+    if (!detectedCharset.startsWith("UTF")) {
+      String utf8Text = new String(data, /* offset= */ 0, length, Charset.forName(detectedCharset));
+      if (inputIsTtml) {
+        utf8Text = XML_ENCODING_ATTRIBUTE.matcher(utf8Text).replaceFirst("$1$2UTF-8$3");
+      }
+      data = utf8Text.getBytes(Charsets.UTF_8);
+    }
+    return data;
   }
 }

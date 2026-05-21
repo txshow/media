@@ -72,7 +72,7 @@ public class DefaultSsChunkSource implements SsChunkSource {
 
     public Factory(DataSource.Factory dataSourceFactory) {
       this.dataSourceFactory = dataSourceFactory;
-      subtitleParserFactory = new DefaultSubtitleParserFactory();
+      subtitleParserFactory = DefaultSubtitleParserFactory.createForExtraction();
     }
 
     @CanIgnoreReturnValue
