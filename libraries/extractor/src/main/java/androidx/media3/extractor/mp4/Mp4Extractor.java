@@ -770,16 +770,10 @@ public final class Mp4Extractor implements Extractor {
           thumbnailMetadata);
       formatBuilder.setContainerMimeType(containerMimeType);
       Format format = formatBuilder.build();
-      // The moov and esds boxes don't contain enough information to distinguish between MPEG
-      // audio layers 1, 2 and 3, but the distinction is important to select the right MIME type
-      // for MediaCodec decoders (and other decoders that handle the same audio/mpeg-L1 and
-      // audio/mpeg-L2 MIME types). DTS has a similar problem where we can't distinguish DTS,
-      // DTS-HD and DTS Express. So we store the format with a placeholder MIME for now, and then
-      // update the MIME type and pass it to TrackOutput.format(...) based on the info in the first
-      // sample.
-      boolean needsSamplesForMimeType =
-          Objects.equals(track.format.sampleMimeType, MimeTypes.AUDIO_MPEG)
-              || DtsUtil.isDtsBaseAudioMimeType(track.format.sampleMimeType);
+      // The moov and esds boxes don't contain enough information to distinguish MPEG audio layers
+      // or DTS variants. TrueHD sample entries also don't indicate whether Atmos is present. Keep
+      // these formats pending until the first suitable sample provides the missing information.
+      boolean needsSampleFormatAnalysis = requiresSampleFormatAnalysis(track.format.sampleMimeType);
       boolean needsChapterMetadata = false;
       if (!omitTrackSampleTable && track.chapterTrackId != C.INDEX_UNSET) {
         for (TrackSampleTable chapterSampleTable : chapterSampleTables) {
@@ -789,7 +783,7 @@ public final class Mp4Extractor implements Extractor {
           }
         }
       }
-      if (needsSamplesForMimeType || needsChapterMetadata) {
+      if (needsSampleFormatAnalysis || needsChapterMetadata) {
         mp4Track.pendingFormat = format;
       } else {
         mp4Track.trackOutput.format(format);
@@ -806,6 +800,12 @@ public final class Mp4Extractor implements Extractor {
 
     extractorOutput.endTracks();
     extractorOutput.seekMap(new Mp4SeekMap(durationUs, this.tracks, firstVideoTrackIndex));
+  }
+
+  private static boolean requiresSampleFormatAnalysis(@Nullable String sampleMimeType) {
+    return Objects.equals(sampleMimeType, MimeTypes.AUDIO_MPEG)
+        || DtsUtil.isDtsBaseAudioMimeType(sampleMimeType)
+        || Objects.equals(sampleMimeType, MimeTypes.AUDIO_TRUEHD);
   }
 
   private static long findBestThumbnailPresentationTimeUs(
@@ -1052,6 +1052,14 @@ public final class Mp4Extractor implements Extractor {
         track.pendingFormat = null;
       } else if (trueHdSampleRechunker != null) {
         trueHdSampleRechunker.startSample(input);
+        if (trueHdSampleRechunker.hasSyncFrame() && pendingFormat != null) {
+          if (trueHdSampleRechunker.isAtmos()) {
+            pendingFormat =
+                pendingFormat.buildUpon().setCodecs(MimeTypes.CODEC_TRUEHD_ATMOS).build();
+          }
+          track.trackOutput.format(pendingFormat);
+          track.pendingFormat = null;
+        }
       }
 
       while (sampleBytesWritten < sampleSize) {
@@ -1140,11 +1148,10 @@ public final class Mp4Extractor implements Extractor {
             currentFormat.buildUpon().setMetadata(new Metadata(filteredEntries)).build();
 
         // The format was kept pending in processMoovAtom either because it was waiting for chapter
-        // metadata, or because it is MPEG or DTS audio (which needs to wait for the first sample to
-        // determine the exact MIME type). We have now applied the chapter metadata, so we can
-        // output the format, unless it is also MPEG or DTS audio.
-        if (Objects.equals(updatedFormat.sampleMimeType, MimeTypes.AUDIO_MPEG)
-            || DtsUtil.isDtsBaseAudioMimeType(updatedFormat.sampleMimeType)) {
+        // metadata, or because its audio format needs to wait for the first sample to be finalized.
+        // We have now applied the chapter metadata, so we can output the format unless sample
+        // analysis is also required.
+        if (requiresSampleFormatAnalysis(updatedFormat.sampleMimeType)) {
           track.pendingFormat = updatedFormat;
         } else {
           track.trackOutput.format(updatedFormat);
