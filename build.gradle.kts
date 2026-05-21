@@ -13,6 +13,7 @@
 // limitations under the License.
 import androidx.media3.buildlogic.Media3Modules
 import java.io.File
+import org.gradle.api.tasks.Exec
 
 buildscript {
   repositories {
@@ -75,4 +76,12 @@ tasks.register("printReleaseArtifactIds") {
         ?: logger.warn("WARN: Project $path has publish task but no releaseArtifactId.")
     }
   }
+}
+
+tasks.register<Exec>("assembleLibs") {
+  group = "build"
+  description = "Assembles release AARs for all lib- modules"
+  dependsOn(subprojects.filter { it.name.startsWith("lib-") }.map { "${it.path}:assembleRelease" })
+  commandLine("cmd", "/c", "move.bat")
+  workingDir(rootDir)
 }
