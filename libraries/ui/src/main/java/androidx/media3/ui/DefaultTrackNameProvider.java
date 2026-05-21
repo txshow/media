@@ -23,6 +23,7 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.util.FormatNameUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import java.util.Locale;
@@ -47,7 +48,10 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
     if (trackType == C.TRACK_TYPE_VIDEO) {
       trackName =
           joinWithSeparator(
-              buildRoleString(format), buildResolutionString(format), buildBitrateString(format));
+              buildRoleString(format),
+              buildResolutionString(format),
+              buildFrameRateString(format),
+              buildBitrateString(format));
     } else if (trackType == C.TRACK_TYPE_AUDIO) {
       trackName =
           joinWithSeparator(
@@ -55,13 +59,14 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
               buildAudioChannelString(format),
               buildBitrateString(format));
     } else {
-      trackName = buildLanguageOrLabelString(format);
+      trackName = joinWithSeparator(buildLanguageString(format), buildLabelString(format));
     }
+    trackName = joinWithSeparator(trackName, FormatNameUtil.getSampleMimeTypeDisplayName(format));
     if (!trackName.isEmpty()) {
       return trackName;
     }
     @Nullable String language = format.language;
-    return (language == null || language.trim().isEmpty())
+    return language == null || language.trim().isEmpty()
         ? resources.getString(R.string.exo_track_unknown)
         : resources.getString(R.string.exo_track_unknown_name, language);
   }
@@ -72,6 +77,11 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
     return width == Format.NO_VALUE || height == Format.NO_VALUE
         ? ""
         : resources.getString(R.string.exo_track_resolution, width, height);
+  }
+
+  private String buildFrameRateString(Format format) {
+    float frameRate = format.frameRate;
+    return frameRate == Format.NO_VALUE ? "" : (int) Math.floor(frameRate) + "FPS";
   }
 
   private String buildBitrateString(Format format) {
@@ -115,6 +125,18 @@ public class DefaultTrackNameProvider implements TrackNameProvider {
     @Nullable String language = format.language;
     if (TextUtils.isEmpty(language) || C.LANGUAGE_UNDETERMINED.equals(language)) {
       return "";
+    }
+    if ("awr".equals(language) || "zh-cmn".equals(language)) {
+      language = "zh";
+    }
+    if ("awq".equals(language) || "qph".equals(language)) {
+      language = "yue";
+    }
+    if ("chs".equals(language)) {
+      language = "zh-Hans";
+    }
+    if ("cht".equals(language)) {
+      language = "zh-Hant";
     }
     Locale languageLocale = Locale.forLanguageTag(language);
     Locale displayLocale = Util.getDefaultDisplayLocale();
