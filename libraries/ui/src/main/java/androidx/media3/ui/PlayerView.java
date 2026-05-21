@@ -38,6 +38,7 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
+import android.net.Uri;
 import android.opengl.GLSurfaceView;
 import android.os.Handler;
 import android.os.Looper;
@@ -77,6 +78,9 @@ import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.RepeatModeUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.ui.AspectRatioFrameLayout.ResizeMode;
+import androidx.media3.ui.danmaku.DanmakuConfig;
+import androidx.media3.ui.danmaku.DanmakuController;
+import androidx.media3.ui.danmaku.DanmakuView;
 import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Documented;
 import java.lang.annotation.Retention;
@@ -87,6 +91,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.List;
+import okhttp3.OkHttpClient;
 import org.checkerframework.checker.nullness.qual.EnsuresNonNullIf;
 
 /**
@@ -306,6 +311,8 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable private final ImageView imageView;
   @Nullable private final ImageView artworkView;
   @Nullable private final SubtitleView subtitleView;
+  @Nullable private final DanmakuView danmakuView;
+  private final DanmakuController danmakuController;
   @Nullable private final View bufferingView;
   @Nullable private final TextView errorMessageView;
   @Nullable private final PlayerControlView controller;
@@ -371,6 +378,8 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
       imageView = null;
       artworkView = null;
       subtitleView = null;
+      danmakuView = null;
+      danmakuController = new DanmakuController();
       bufferingView = null;
       errorMessageView = null;
       controller = null;
@@ -560,6 +569,11 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
       subtitleView.setUserDefaultTextSize();
     }
 
+    // Danmaku view.
+    danmakuView = findViewById(R.id.exo_danmaku);
+    danmakuController = new DanmakuController();
+    danmakuController.setView(danmakuView);
+
     // Buffering view.
     bufferingView = findViewById(R.id.exo_buffering);
     if (bufferingView != null) {
@@ -716,6 +730,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
     if (subtitleView != null) {
       subtitleView.setCues(null);
     }
+    danmakuController.setPlayer(player);
     this.player = player;
     if (useController()) {
       controller.setPlayer(player);
@@ -766,6 +781,20 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
         throw new RuntimeException(e);
       }
     }
+  }
+
+  @Override
+  protected void onAttachedToWindow() {
+    super.onAttachedToWindow();
+    danmakuController.setPlayer(player);
+    danmakuController.setView(danmakuView);
+  }
+
+  @Override
+  protected void onDetachedFromWindow() {
+    super.onDetachedFromWindow();
+    danmakuController.setPlayer(null);
+    danmakuController.setView(null);
   }
 
   @Override
@@ -1466,6 +1495,58 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable
   public SubtitleView getSubtitleView() {
     return subtitleView;
+  }
+
+  /**
+   * Gets the {@link DanmakuView}.
+   *
+   * @return The {@link DanmakuView}, or {@code null} if the layout has been customized and the
+   *     danmaku view is not present.
+   */
+  @UnstableApi
+  @Nullable
+  public DanmakuView getDanmakuView() {
+    return danmakuView;
+  }
+
+  /** Returns the {@link DanmakuController} currently attached to this view. */
+  @UnstableApi
+  public DanmakuController getDanmakuController() {
+    return danmakuController;
+  }
+
+  /** Sets the {@link OkHttpClient} used to fetch HTTP/HTTPS danmaku sources. */
+  @UnstableApi
+  public void setDanmakuOkHttpClient(@Nullable OkHttpClient client) {
+    danmakuController.setOkHttpClient(client);
+  }
+
+  /** Sets the danmaku source URI, or {@code null} to clear the current danmaku items. */
+  @UnstableApi
+  public void setDanmakuSource(@Nullable Uri uri) {
+    if (danmakuView == null && uri != null) {
+      danmakuController.clearItems();
+      return;
+    }
+    danmakuController.setDataSource(uri);
+  }
+
+  /** Sets the danmaku rendering configuration. */
+  @UnstableApi
+  public void setDanmakuConfig(DanmakuConfig config) {
+    danmakuController.setConfig(config);
+  }
+
+  /** Sets whether danmaku rendering is enabled. */
+  @UnstableApi
+  public void setDanmakuEnabled(boolean enabled) {
+    danmakuController.setEnabled(enabled);
+  }
+
+  /** Sends a danmaku item at the current playback position. */
+  @UnstableApi
+  public void sendDanmaku(String text) {
+    danmakuController.sendNow(text);
   }
 
   @Override
