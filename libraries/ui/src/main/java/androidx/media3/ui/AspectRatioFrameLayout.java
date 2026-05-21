@@ -39,7 +39,8 @@ public final class AspectRatioFrameLayout extends FrameLayout {
     /**
      * Called when either the target aspect ratio or the view aspect ratio is updated.
      *
-     * @param targetAspectRatio The aspect ratio that has been set in {@link #setAspectRatio(float)}
+     * @param targetAspectRatio The aspect ratio used to measure the view, including any override
+     *     from the current {@link ResizeMode}.
      * @param naturalAspectRatio The natural aspect ratio of this view (before its width and height
      *     are modified to satisfy the target aspect ratio).
      * @param aspectRatioMismatch Whether the target and natural aspect ratios differ enough for
@@ -52,33 +53,23 @@ public final class AspectRatioFrameLayout extends FrameLayout {
   // LINT.IfChange
   /**
    * Resize modes for {@link AspectRatioFrameLayout}. One of {@link #RESIZE_MODE_FIT}, {@link
-   * #RESIZE_MODE_FIXED_WIDTH}, {@link #RESIZE_MODE_FIXED_HEIGHT}, {@link #RESIZE_MODE_FILL} or
-   * {@link #RESIZE_MODE_ZOOM}.
+   * #RESIZE_MODE_16_9}, {@link #RESIZE_MODE_4_3}, {@link #RESIZE_MODE_FILL} or {@link
+   * #RESIZE_MODE_ZOOM}.
    */
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
-  @IntDef({
-    RESIZE_MODE_FIT,
-    RESIZE_MODE_FIXED_WIDTH,
-    RESIZE_MODE_FIXED_HEIGHT,
-    RESIZE_MODE_FILL,
-    RESIZE_MODE_ZOOM
-  })
+  @IntDef({RESIZE_MODE_FIT, RESIZE_MODE_16_9, RESIZE_MODE_4_3, RESIZE_MODE_FILL, RESIZE_MODE_ZOOM})
   public @interface ResizeMode {}
 
   /** Either the width or height is decreased to obtain the desired aspect ratio. */
   public static final int RESIZE_MODE_FIT = 0;
 
-  /**
-   * The width is fixed and the height is increased or decreased to obtain the desired aspect ratio.
-   */
-  public static final int RESIZE_MODE_FIXED_WIDTH = 1;
+  /** Either the width or height is decreased to obtain a 16:9 aspect ratio. */
+  public static final int RESIZE_MODE_16_9 = 1;
 
-  /**
-   * The height is fixed and the width is increased or decreased to obtain the desired aspect ratio.
-   */
-  public static final int RESIZE_MODE_FIXED_HEIGHT = 2;
+  /** Either the width or height is decreased to obtain a 4:3 aspect ratio. */
+  public static final int RESIZE_MODE_4_3 = 2;
 
   /** The specified aspect ratio is ignored. */
   public static final int RESIZE_MODE_FILL = 3;
@@ -130,7 +121,8 @@ public final class AspectRatioFrameLayout extends FrameLayout {
   /**
    * Sets the aspect ratio that this view should satisfy.
    *
-   * @param widthHeightRatio The width to height ratio.
+   * @param widthHeightRatio The width to height ratio, or a non-positive value to disable aspect
+   *     ratio correction.
    */
   public void setAspectRatio(float widthHeightRatio) {
     if (this.videoAspectRatio != widthHeightRatio) {
@@ -174,35 +166,38 @@ public final class AspectRatioFrameLayout extends FrameLayout {
       return;
     }
 
+    float targetAspectRatio = videoAspectRatio;
+    if (resizeMode == RESIZE_MODE_16_9) {
+      targetAspectRatio = 16 / 9f;
+    } else if (resizeMode == RESIZE_MODE_4_3) {
+      targetAspectRatio = 4f / 3f;
+    }
+
     int width = getMeasuredWidth();
     int height = getMeasuredHeight();
     float viewAspectRatio = (float) width / height;
-    float aspectDeformation = videoAspectRatio / viewAspectRatio - 1;
+    float aspectDeformation = targetAspectRatio / viewAspectRatio - 1;
     if (Math.abs(aspectDeformation) <= MAX_ASPECT_RATIO_DEFORMATION_FRACTION) {
       // We're within the allowed tolerance.
-      aspectRatioUpdateDispatcher.scheduleUpdate(videoAspectRatio, viewAspectRatio, false);
+      aspectRatioUpdateDispatcher.scheduleUpdate(targetAspectRatio, viewAspectRatio, false);
       return;
     }
 
     switch (resizeMode) {
-      case RESIZE_MODE_FIXED_WIDTH:
-        height = (int) (width / videoAspectRatio);
-        break;
-      case RESIZE_MODE_FIXED_HEIGHT:
-        width = (int) (height * videoAspectRatio);
-        break;
       case RESIZE_MODE_ZOOM:
         if (aspectDeformation > 0) {
-          width = (int) (height * videoAspectRatio);
+          width = (int) (height * targetAspectRatio);
         } else {
-          height = (int) (width / videoAspectRatio);
+          height = (int) (width / targetAspectRatio);
         }
         break;
+      case RESIZE_MODE_16_9:
+      case RESIZE_MODE_4_3:
       case RESIZE_MODE_FIT:
         if (aspectDeformation > 0) {
-          height = (int) (width / videoAspectRatio);
+          height = (int) (width / targetAspectRatio);
         } else {
-          width = (int) (height * videoAspectRatio);
+          width = (int) (height * targetAspectRatio);
         }
         break;
       case RESIZE_MODE_FILL:
@@ -210,7 +205,7 @@ public final class AspectRatioFrameLayout extends FrameLayout {
         // Ignore target aspect ratio
         break;
     }
-    aspectRatioUpdateDispatcher.scheduleUpdate(videoAspectRatio, viewAspectRatio, true);
+    aspectRatioUpdateDispatcher.scheduleUpdate(targetAspectRatio, viewAspectRatio, true);
     super.onMeasure(
         MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
         MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
