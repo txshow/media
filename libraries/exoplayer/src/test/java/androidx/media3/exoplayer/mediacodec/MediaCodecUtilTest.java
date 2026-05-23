@@ -25,6 +25,7 @@ import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.CodecSpecificDataUtil.MediaCodecProfileAndLevel;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
+import java.util.Collections;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.shadows.ShadowBuild;
@@ -229,7 +230,7 @@ public final class MediaCodecUtilTest {
   }
 
   @Test
-  public void getAlternativeCodecMimeType_withNonFallbackCompatibleFormat_returnsNull() {
+  public void getAlternativeCodecMimeType_withNonFallbackCompatibleFormat_returnsEmpty() {
     // Profile 10.0 (Full Range PQ) which does NOT allow fallback.
     Format formatDav1NoFallbackPossible =
         new Format.Builder()
@@ -255,23 +256,24 @@ public final class MediaCodecUtilTest {
                     .build())
             .build();
 
-    assertThat(MediaCodecUtil.getAlternativeCodecMimeType(formatDav1NoFallbackPossible)).isNull();
-    assertThat(MediaCodecUtil.getAlternativeCodecMimeType(formatDav1FallbackToAv1))
-        .isEqualTo(MimeTypes.VIDEO_AV1);
+    assertThat(MediaCodecUtil.getAlternativeCodecMimeTypes(formatDav1NoFallbackPossible)).isEmpty();
+    assertThat(MediaCodecUtil.getAlternativeCodecMimeTypes(formatDav1FallbackToAv1))
+        .isEqualTo(Collections.singletonList(MimeTypes.VIDEO_AV1));
   }
 
   @Test
-  public void getAlternativeCodecMimeType_withEac3JocFormatOnNonGoogleDevice_returnsEac3() {
+  public void getAlternativeCodecMimeTypes_withEac3JocFormatOnNonGoogleDevice_returnsEac3() {
     ShadowBuild.setManufacturer("Samsung");
     Format format = new Format.Builder().setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC).build();
-    assertThat(MediaCodecUtil.getAlternativeCodecMimeType(format)).isEqualTo(MimeTypes.AUDIO_E_AC3);
+    assertThat(MediaCodecUtil.getAlternativeCodecMimeTypes(format))
+        .containsExactly(MimeTypes.AUDIO_E_AC3);
   }
 
   @Test
-  public void getAlternativeCodecMimeType_withEac3JocFormatOnGoogleDevice_returnsNull() {
+  public void getAlternativeCodecMimeTypes_withEac3JocFormatOnGoogleDevice_returnsEmpty() {
     ShadowBuild.setManufacturer("Google");
     Format format = new Format.Builder().setSampleMimeType(MimeTypes.AUDIO_E_AC3_JOC).build();
-    assertThat(MediaCodecUtil.getAlternativeCodecMimeType(format)).isNull();
+    assertThat(MediaCodecUtil.getAlternativeCodecMimeTypes(format)).isEmpty();
   }
 
   private static void assertHevcBaseLayerCodecProfileAndLevelForFormat(
