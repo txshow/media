@@ -66,6 +66,8 @@ import androidx.annotation.Nullable;
 import androidx.concurrent.futures.ResolvableFuture;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.MediaMetadata;
@@ -2243,6 +2245,38 @@ import org.checkerframework.checker.initialization.qual.Initialized;
           /* excludeTimeline= */ true, /* excludeTracks= */ true);
       session.dispatchRemoteControllerTaskWithoutReturn(
           (callback, seq) -> callback.onTrackSelectionParametersChanged(seq, parameters));
+    }
+
+    @Override
+    public void onMediaChaptersChanged(List<MediaChapter> chapters) {
+      @Nullable MediaSessionImpl session = getSession();
+      if (session == null) {
+        return;
+      }
+      session.verifyApplicationThread();
+      @Nullable PlayerWrapper player = this.player.get();
+      if (player == null) {
+        return;
+      }
+      session.playerInfo = session.playerInfo.copyWithCurrentMediaChapters(chapters);
+      session.onPlayerInfoChangedHandler.sendPlayerInfoChangedMessage(
+          /* excludeTimeline= */ true, /* excludeTracks= */ true);
+    }
+
+    @Override
+    public void onMediaEditionsChanged(List<MediaEdition> editions) {
+      @Nullable MediaSessionImpl session = getSession();
+      if (session == null) {
+        return;
+      }
+      session.verifyApplicationThread();
+      @Nullable PlayerWrapper player = this.player.get();
+      if (player == null) {
+        return;
+      }
+      session.playerInfo = session.playerInfo.copyWithCurrentMediaEditions(editions);
+      session.onPlayerInfoChangedHandler.sendPlayerInfoChangedMessage(
+          /* excludeTimeline= */ true, /* excludeTracks= */ true);
     }
 
     @Override

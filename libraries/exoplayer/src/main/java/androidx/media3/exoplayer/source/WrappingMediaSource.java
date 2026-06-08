@@ -255,4 +255,9 @@ public abstract class WrappingMediaSource extends CompositeMediaSource<Void> {
   protected final void releaseChildSource() {
     releaseChildSource(CHILD_SOURCE_ID);
   }
+
+  /** Returns the wrapped child {@link MediaSource}. */
+  public final MediaSource getWrappedSource() {
+    return mediaSource;
+  }
 }

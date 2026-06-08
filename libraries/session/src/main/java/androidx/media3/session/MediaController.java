@@ -41,6 +41,8 @@ import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.MediaMetadata;
@@ -2122,6 +2124,18 @@ public class MediaController implements Player {
   }
 
   @Override
+  public final List<MediaChapter> getCurrentMediaChapters() {
+    verifyApplicationThread();
+    return isConnected() ? impl.getCurrentMediaChapters() : ImmutableList.of();
+  }
+
+  @Override
+  public final List<MediaEdition> getCurrentMediaEditions() {
+    verifyApplicationThread();
+    return isConnected() ? impl.getCurrentMediaEditions() : ImmutableList.of();
+  }
+
+  @Override
   public final TrackSelectionParameters getTrackSelectionParameters() {
     verifyApplicationThread();
     if (!isConnected()) {
@@ -2505,6 +2519,10 @@ public class MediaController implements Player {
     Commands getAvailableCommands();
 
     Tracks getCurrentTracks();
+
+    List<MediaChapter> getCurrentMediaChapters();
+
+    List<MediaEdition> getCurrentMediaEditions();
 
     TrackSelectionParameters getTrackSelectionParameters();
 

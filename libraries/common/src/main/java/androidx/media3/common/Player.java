@@ -45,6 +45,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -923,6 +924,30 @@ public interface Player {
     default void onTracksChanged(Tracks tracks) {}
 
     /**
+     * Called when the value of {@link Player#getCurrentMediaChapters()} changes.
+     *
+     * <p>{@link #onEvents(Player, Events)} will also be called to report this event along with
+     * other events that happen in the same {@link Looper} message queue iteration.
+     *
+     * @param chapters The available seekable chapters. Never null, but may be empty when entries
+     *     become unavailable.
+     */
+    @UnstableApi
+    default void onMediaChaptersChanged(List<MediaChapter> chapters) {}
+
+    /**
+     * Called when the value of {@link Player#getCurrentMediaEditions()} changes.
+     *
+     * <p>{@link #onEvents(Player, Events)} will also be called to report this event along with
+     * other events that happen in the same {@link Looper} message queue iteration.
+     *
+     * @param editions The available selectable editions. Never null, but may be empty when entries
+     *     become unavailable.
+     */
+    @UnstableApi
+    default void onMediaEditionsChanged(List<MediaEdition> editions) {}
+
+    /**
      * Called when the value of {@link Player#getMediaMetadata()} changes.
      *
      * <p>This method may be called multiple times in quick succession.
@@ -1635,7 +1660,9 @@ public interface Player {
     EVENT_CUES,
     EVENT_METADATA,
     EVENT_DEVICE_INFO_CHANGED,
-    EVENT_DEVICE_VOLUME_CHANGED
+    EVENT_DEVICE_VOLUME_CHANGED,
+    EVENT_MEDIA_CHAPTERS_CHANGED,
+    EVENT_MEDIA_EDITIONS_CHANGED
   })
   @interface Event {}
 
@@ -1737,6 +1764,12 @@ public interface Player {
 
   /** {@link #getDeviceVolume()} or {@link #isDeviceMuted()} changed. */
   int EVENT_DEVICE_VOLUME_CHANGED = 30;
+
+  /** {@link #getCurrentMediaChapters()} changed. */
+  @UnstableApi int EVENT_MEDIA_CHAPTERS_CHANGED = 31;
+
+  /** {@link #getCurrentMediaEditions()} changed. */
+  @UnstableApi int EVENT_MEDIA_EDITIONS_CHANGED = 32;
 
   /**
    * Commands that indicate which method calls are currently permitted on a particular {@code
@@ -2975,6 +3008,52 @@ public interface Player {
    * @see Listener#onTracksChanged(Tracks)
    */
   Tracks getCurrentTracks();
+
+  /**
+   * Returns the available seekable chapters for the current media item, or an empty list if none
+   * are available.
+   *
+   * @see Listener#onMediaChaptersChanged(List)
+   */
+  @UnstableApi
+  default List<MediaChapter> getCurrentMediaChapters() {
+    return Collections.emptyList();
+  }
+
+  /**
+   * Returns the available selectable editions for the current media item, or an empty list if none
+   * are available.
+   *
+   * <p>Examples include Matroska editions, DVD/Blu-ray titles or playlists, and SACD areas.
+   *
+   * @see Listener#onMediaEditionsChanged(List)
+   */
+  @UnstableApi
+  default List<MediaEdition> getCurrentMediaEditions() {
+    return Collections.emptyList();
+  }
+
+  /**
+   * Selects a seekable chapter entry.
+   *
+   * @param chapter The chapter to select.
+   * @return Whether the selection request was accepted.
+   */
+  @UnstableApi
+  default boolean selectChapter(MediaChapter chapter) {
+    return false;
+  }
+
+  /**
+   * Selects an edition entry when the current source supports source-level selection.
+   *
+   * @param edition The edition to select.
+   * @return Whether the selection request was accepted.
+   */
+  @UnstableApi
+  default boolean selectEdition(MediaEdition edition) {
+    return false;
+  }
 
   /**
    * Returns the parameters constraining the track selection.
