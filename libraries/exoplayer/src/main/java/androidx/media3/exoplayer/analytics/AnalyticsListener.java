@@ -36,6 +36,8 @@ import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.FlagSet;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Metadata;
@@ -175,6 +177,8 @@ public interface AnalyticsListener {
     EVENT_TIMELINE_CHANGED,
     EVENT_MEDIA_ITEM_TRANSITION,
     EVENT_TRACKS_CHANGED,
+    EVENT_MEDIA_CHAPTERS_CHANGED,
+    EVENT_MEDIA_EDITIONS_CHANGED,
     EVENT_IS_LOADING_CHANGED,
     EVENT_PLAYBACK_STATE_CHANGED,
     EVENT_PLAY_WHEN_READY_CHANGED,
@@ -250,6 +254,12 @@ public interface AnalyticsListener {
 
   /** {@link Player#getCurrentTracks()} changed. */
   @UnstableApi int EVENT_TRACKS_CHANGED = Player.EVENT_TRACKS_CHANGED;
+
+  /** {@link Player#getCurrentMediaChapters()} changed. */
+  @UnstableApi int EVENT_MEDIA_CHAPTERS_CHANGED = Player.EVENT_MEDIA_CHAPTERS_CHANGED;
+
+  /** {@link Player#getCurrentMediaEditions()} changed. */
+  @UnstableApi int EVENT_MEDIA_EDITIONS_CHANGED = Player.EVENT_MEDIA_EDITIONS_CHANGED;
 
   /** {@link Player#isLoading()} ()} changed. */
   @UnstableApi int EVENT_IS_LOADING_CHANGED = Player.EVENT_IS_LOADING_CHANGED;
@@ -814,6 +824,24 @@ public interface AnalyticsListener {
    */
   @UnstableApi
   default void onTracksChanged(EventTime eventTime, Tracks tracks) {}
+
+  /**
+   * Called when the current media chapters change.
+   *
+   * @param eventTime The event time.
+   * @param chapters The current media chapters.
+   */
+  @UnstableApi
+  default void onMediaChaptersChanged(EventTime eventTime, List<MediaChapter> chapters) {}
+
+  /**
+   * Called when the current media editions change.
+   *
+   * @param eventTime The event time.
+   * @param editions The current media editions.
+   */
+  @UnstableApi
+  default void onMediaEditionsChanged(EventTime eventTime, List<MediaEdition> editions) {}
 
   /**
    * Called when track selection parameters change.

@@ -135,6 +135,8 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
     if (player.isCommandAvailable(Player.COMMAND_GET_TEXT)) {
       state.setCurrentCues(player.getCurrentCues());
     }
+    state.setCurrentMediaChapters(player.getCurrentMediaChapters());
+    state.setCurrentMediaEditions(player.getCurrentMediaEditions());
     if (player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)) {
       state.setCurrentMediaItemIndex(player.getCurrentMediaItemIndex());
     }
@@ -192,6 +194,16 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
       state.setTextOffsetMs(player.getTextOffsetMs());
     }
     return state.build();
+  }
+
+  @Override
+  protected boolean handleSelectChapter(MediaChapter chapter) {
+    return player.selectChapter(chapter);
+  }
+
+  @Override
+  protected boolean handleSelectEdition(MediaEdition edition) {
+    return player.selectEdition(edition);
   }
 
   @Override

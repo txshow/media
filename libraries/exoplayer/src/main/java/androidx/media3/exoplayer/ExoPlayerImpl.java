@@ -69,6 +69,9 @@ import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.IllegalSeekPositionException;
+import androidx.media3.common.Label;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaLibraryInfo;
 import androidx.media3.common.MediaMetadata;
@@ -111,11 +114,15 @@ import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.image.ImageOutput;
 import androidx.media3.exoplayer.metadata.MetadataOutput;
 import androidx.media3.exoplayer.source.MaskingMediaSource;
+import androidx.media3.exoplayer.source.MediaChapterProvider;
+import androidx.media3.exoplayer.source.MediaEditionProvider;
+import androidx.media3.exoplayer.source.MediaEditionSelector;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.MediaSource.MediaPeriodId;
 import androidx.media3.exoplayer.source.ShuffleOrder;
 import androidx.media3.exoplayer.source.TimelineWithUpdatedMediaItem;
 import androidx.media3.exoplayer.source.TrackGroupArray;
+import androidx.media3.exoplayer.source.WrappingMediaSource;
 import androidx.media3.exoplayer.text.TextOutput;
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection;
 import androidx.media3.exoplayer.trackselection.TrackSelectionArray;
@@ -127,6 +134,7 @@ import androidx.media3.exoplayer.video.VideoFrameMetadataListener;
 import androidx.media3.exoplayer.video.VideoRendererEventListener;
 import androidx.media3.exoplayer.video.spherical.CameraMotionListener;
 import androidx.media3.exoplayer.video.spherical.SphericalGLSurfaceView;
+import androidx.media3.extractor.metadata.Chapter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import java.lang.ref.WeakReference;
@@ -215,6 +223,8 @@ import java.util.function.IntConsumer;
   private Commands availableCommands;
   private MediaMetadata mediaMetadata;
   private MediaMetadata playlistMetadata;
+  private ImmutableList<MediaChapter> currentMediaChapters = ImmutableList.of();
+  private ImmutableList<MediaEdition> currentMediaEditions = ImmutableList.of();
   @Nullable private Format videoFormat;
   @Nullable private Format audioFormat;
   @Nullable private Object videoOutput;
@@ -1371,6 +1381,48 @@ import java.util.function.IntConsumer;
   }
 
   @Override
+  public List<MediaChapter> getCurrentMediaChapters() {
+    verifyApplicationThread();
+    return currentMediaChapters;
+  }
+
+  @Override
+  public List<MediaEdition> getCurrentMediaEditions() {
+    verifyApplicationThread();
+    return currentMediaEditions;
+  }
+
+  @Override
+  public boolean selectChapter(MediaChapter chapter) {
+    verifyApplicationThread();
+    @Nullable MediaChapter currentChapter = findMediaChapter(currentMediaChapters, chapter.index);
+    if (currentChapter == null || currentChapter.timeUs == C.TIME_UNSET) {
+      return false;
+    }
+    seekTo(Util.usToMs(currentChapter.timeUs));
+    return true;
+  }
+
+  @Override
+  public boolean selectEdition(MediaEdition edition) {
+    verifyApplicationThread();
+    MediaEditionSelector selector = getCurrentSourceAs(playbackInfo, MediaEditionSelector.class);
+    @Nullable MediaEdition currentEdition = findMediaEdition(currentMediaEditions, edition.index);
+    if (selector == null || currentEdition == null) {
+      return false;
+    }
+    if (currentEdition.selected) {
+      return true;
+    }
+    updateMediaEditions(applyEditionSelection(currentMediaEditions, currentEdition.index));
+    updateMediaChapters(ImmutableList.of());
+    listeners.flushEvents();
+    createMessage((messageType, payload) -> selector.selectEdition(currentEdition)).send();
+    seekToDefaultPosition();
+    return true;
+  }
+
+  @Override
   public TrackSelectionParameters getTrackSelectionParameters() {
     verifyApplicationThread();
     TrackSelectionParameters parameters = trackSelector.getParameters();
@@ -2364,6 +2416,8 @@ import java.util.function.IntConsumer;
             repeatCurrentMediaItem);
     boolean mediaItemTransitioned = mediaItemTransitionInfo.first;
     int mediaItemTransitionReason = mediaItemTransitionInfo.second;
+    boolean staticMetadataChanged =
+        !previousPlaybackInfo.staticMetadata.equals(newPlaybackInfo.staticMetadata);
     @Nullable MediaItem mediaItem = null;
     if (mediaItemTransitioned) {
       if (!newPlaybackInfo.timeline.isEmpty()) {
@@ -2374,8 +2428,7 @@ import java.util.function.IntConsumer;
       }
       staticAndDynamicMediaMetadata = MediaMetadata.EMPTY;
     }
-    if (mediaItemTransitioned
-        || !previousPlaybackInfo.staticMetadata.equals(newPlaybackInfo.staticMetadata)) {
+    if (mediaItemTransitioned || staticMetadataChanged) {
       staticAndDynamicMediaMetadata =
           staticAndDynamicMediaMetadata
               .buildUpon()
@@ -2490,6 +2543,9 @@ import java.util.function.IntConsumer;
           Player.EVENT_PLAYBACK_PARAMETERS_CHANGED,
           listener -> listener.onPlaybackParametersChanged(newPlaybackInfo.playbackParameters));
     }
+    if (timelineChanged || staticMetadataChanged || positionDiscontinuity) {
+      maybeUpdateMediaEntries(newPlaybackInfo);
+    }
     updateAvailableCommands();
     listeners.flushEvents();
 
@@ -2498,6 +2554,212 @@ import java.util.function.IntConsumer;
         listener.onSleepingForOffloadChanged(newPlaybackInfo.sleepingForOffload);
       }
     }
+  }
+
+  private void maybeUpdateMediaEntries(PlaybackInfo playbackInfo) {
+    if (playbackInfo.timeline.isEmpty()) {
+      updateMediaChapters(ImmutableList.of());
+      updateMediaEditions(ImmutableList.of());
+      return;
+    }
+    updateMediaChapters(readMediaChapters(playbackInfo));
+    updateMediaEditions(readMediaEditions(playbackInfo));
+  }
+
+  private ImmutableList<MediaChapter> readMediaChapters(PlaybackInfo playbackInfo) {
+    MediaChapterProvider provider = getCurrentSourceAs(playbackInfo, MediaChapterProvider.class);
+    if (provider != null) {
+      @Nullable List<MediaChapter> scanned = provider.getMediaChapters();
+      return scanned == null
+          ? ImmutableList.of()
+          : applyChapterSelection(scanned, getSelectedChapterIndex(scanned, playbackInfo));
+    }
+    ImmutableList<MediaChapter> metadataChapters = getMetadataChapters(playbackInfo);
+    return applyChapterSelection(
+        metadataChapters, getSelectedChapterIndex(metadataChapters, playbackInfo));
+  }
+
+  private ImmutableList<MediaEdition> readMediaEditions(PlaybackInfo playbackInfo) {
+    MediaEditionProvider provider = getCurrentSourceAs(playbackInfo, MediaEditionProvider.class);
+    if (provider == null) {
+      return ImmutableList.of();
+    }
+    @Nullable List<MediaEdition> editions = provider.getMediaEditions();
+    return editions == null
+        ? ImmutableList.of()
+        : applyEditionSelection(editions, provider.getSelectedMediaEditionIndex());
+  }
+
+  @Nullable
+  private <T> T getCurrentSourceAs(PlaybackInfo playbackInfo, Class<T> sourceType) {
+    MediaSource source = getCurrentSource(playbackInfo);
+    return sourceType.isInstance(source) ? sourceType.cast(source) : null;
+  }
+
+  @Nullable
+  private MediaSource getCurrentSource(PlaybackInfo playbackInfo) {
+    if (playbackInfo.timeline.isEmpty()) {
+      return null;
+    }
+    int windowIndex =
+        playbackInfo.timeline.getPeriodByUid(playbackInfo.periodId.periodUid, period).windowIndex;
+    if (windowIndex >= mediaSourceHolderSnapshots.size()) {
+      return null;
+    }
+    return unwrapMediaSource(mediaSourceHolderSnapshots.get(windowIndex).mediaSource);
+  }
+
+  private static MediaSource unwrapMediaSource(MediaSource source) {
+    while (source instanceof WrappingMediaSource) {
+      source = ((WrappingMediaSource) source).getWrappedSource();
+    }
+    return source;
+  }
+
+  private void updateMediaChapters(List<MediaChapter> chapters) {
+    ImmutableList<MediaChapter> newChapters = ImmutableList.copyOf(chapters);
+    if (newChapters.equals(currentMediaChapters)) {
+      return;
+    }
+    currentMediaChapters = newChapters;
+    listeners.queueEvent(
+        Player.EVENT_MEDIA_CHAPTERS_CHANGED, l -> l.onMediaChaptersChanged(newChapters));
+  }
+
+  private void updateMediaEditions(List<MediaEdition> editions) {
+    ImmutableList<MediaEdition> newEditions = ImmutableList.copyOf(editions);
+    if (newEditions.equals(currentMediaEditions)) {
+      return;
+    }
+    currentMediaEditions = newEditions;
+    listeners.queueEvent(
+        Player.EVENT_MEDIA_EDITIONS_CHANGED, l -> l.onMediaEditionsChanged(newEditions));
+  }
+
+  @Nullable
+  private static MediaChapter findMediaChapter(List<MediaChapter> chapters, int index) {
+    for (MediaChapter chapter : chapters) {
+      if (chapter.index == index) {
+        return chapter;
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  private static MediaEdition findMediaEdition(List<MediaEdition> editions, int index) {
+    for (MediaEdition edition : editions) {
+      if (edition.index == index) {
+        return edition;
+      }
+    }
+    return null;
+  }
+
+  private static ImmutableList<MediaChapter> applyChapterSelection(
+      List<MediaChapter> chapters, int selectedIndex) {
+    if (selectedIndex < 0) {
+      return ImmutableList.copyOf(chapters);
+    }
+    boolean changed = false;
+    ImmutableList.Builder<MediaChapter> result =
+        ImmutableList.builderWithExpectedSize(chapters.size());
+    for (MediaChapter chapter : chapters) {
+      boolean selected = chapter.index == selectedIndex;
+      if (chapter.selected == selected) {
+        result.add(chapter);
+      } else {
+        changed = true;
+        result.add(chapter.withSelected(selected));
+      }
+    }
+    return changed ? result.build() : ImmutableList.copyOf(chapters);
+  }
+
+  private static ImmutableList<MediaEdition> applyEditionSelection(
+      List<MediaEdition> editions, int selectedIndex) {
+    if (selectedIndex < 0) {
+      return ImmutableList.copyOf(editions);
+    }
+    boolean changed = false;
+    ImmutableList.Builder<MediaEdition> result =
+        ImmutableList.builderWithExpectedSize(editions.size());
+    for (MediaEdition edition : editions) {
+      boolean selected = edition.index == selectedIndex;
+      if (edition.selected == selected) {
+        result.add(edition);
+      } else {
+        changed = true;
+        result.add(edition.withSelected(selected));
+      }
+    }
+    return changed ? result.build() : ImmutableList.copyOf(editions);
+  }
+
+  private ImmutableList<MediaChapter> getMetadataChapters(PlaybackInfo playbackInfo) {
+    if (playbackInfo.staticMetadata.isEmpty()) {
+      return ImmutableList.of();
+    }
+    ArrayList<MediaChapter> chapters = new ArrayList<>();
+    for (int metadataIndex = 0;
+        metadataIndex < playbackInfo.staticMetadata.size();
+        metadataIndex++) {
+      Metadata metadata = playbackInfo.staticMetadata.get(metadataIndex);
+      for (int entryIndex = 0; entryIndex < metadata.length(); entryIndex++) {
+        Metadata.Entry entry = metadata.get(entryIndex);
+        if (!(entry instanceof Chapter)) {
+          continue;
+        }
+        Chapter chapter = (Chapter) entry;
+        if (chapter.isHidden() || chapter.getStartTimeMs() == C.TIME_UNSET) {
+          continue;
+        }
+        long timeUs =
+            max(
+                0,
+                periodPositionUsToWindowPositionUs(
+                    playbackInfo.timeline,
+                    playbackInfo.periodId,
+                    Util.msToUs(chapter.getStartTimeMs())));
+        if (!containsChapterAtTime(chapters, timeUs)) {
+          chapters.add(
+              MediaChapter.chapter(
+                  chapters.size(), timeUs, getChapterLabel(chapter, chapters.size()), false));
+        }
+      }
+    }
+    return ImmutableList.copyOf(chapters);
+  }
+
+  private static boolean containsChapterAtTime(List<MediaChapter> chapters, long timeUs) {
+    for (MediaChapter chapter : chapters) {
+      if (chapter.timeUs == timeUs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String getChapterLabel(Chapter chapter, int index) {
+    @Nullable Label title = chapter.getTitle();
+    return title != null && !title.value.isEmpty() ? title.value : "Chapter " + (index + 1);
+  }
+
+  private int getSelectedChapterIndex(List<MediaChapter> chapters, PlaybackInfo playbackInfo) {
+    long positionUs =
+        periodPositionUsToWindowPositionUs(
+            playbackInfo.timeline, playbackInfo.periodId, playbackInfo.positionUs);
+    int selectedIndex = C.INDEX_UNSET;
+    long selectedTimeUs = Long.MIN_VALUE;
+    for (MediaChapter chapter : chapters) {
+      if (chapter.timeUs != C.TIME_UNSET
+          && chapter.timeUs <= positionUs
+          && chapter.timeUs >= selectedTimeUs) {
+        selectedIndex = chapter.index;
+        selectedTimeUs = chapter.timeUs;
+      }
+    }
+    return selectedIndex;
   }
 
   private PositionInfo getPreviousPositionInfo(

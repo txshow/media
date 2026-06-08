@@ -26,6 +26,8 @@ import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
 import androidx.media3.common.Format;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.Metadata;
@@ -521,6 +523,24 @@ public class DefaultAnalyticsCollector implements AnalyticsCollector {
         eventTime,
         AnalyticsListener.EVENT_TRACKS_CHANGED,
         listener -> listener.onTracksChanged(eventTime, tracks));
+  }
+
+  @Override
+  public void onMediaChaptersChanged(List<MediaChapter> chapters) {
+    EventTime eventTime = generateCurrentPlayerMediaPeriodEventTime();
+    sendEvent(
+        eventTime,
+        AnalyticsListener.EVENT_MEDIA_CHAPTERS_CHANGED,
+        listener -> listener.onMediaChaptersChanged(eventTime, chapters));
+  }
+
+  @Override
+  public void onMediaEditionsChanged(List<MediaEdition> editions) {
+    EventTime eventTime = generateCurrentPlayerMediaPeriodEventTime();
+    sendEvent(
+        eventTime,
+        AnalyticsListener.EVENT_MEDIA_EDITIONS_CHANGED,
+        listener -> listener.onMediaEditionsChanged(eventTime, editions));
   }
 
   @SuppressWarnings("deprecation") // Implementing deprecated method.

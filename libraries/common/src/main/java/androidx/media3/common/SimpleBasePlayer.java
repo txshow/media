@@ -131,6 +131,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
       private Size surfaceSize;
       private boolean newlyRenderedFirstFrame;
       private Metadata timedMetadata;
+      private ImmutableList<MediaChapter> currentMediaChapters;
+      private ImmutableList<MediaEdition> currentMediaEditions;
       @Nullable private ImmutableList<MediaItemData> playlist;
       private Timeline timeline;
       @Nullable private Tracks currentTracks;
@@ -180,6 +182,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
         surfaceSize = Size.UNKNOWN;
         newlyRenderedFirstFrame = false;
         timedMetadata = new Metadata(/* presentationTimeUs= */ C.TIME_UNSET);
+        currentMediaChapters = ImmutableList.of();
+        currentMediaEditions = ImmutableList.of();
         playlist = ImmutableList.of();
         timeline = Timeline.EMPTY;
         currentTracks = null;
@@ -229,6 +233,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
         this.surfaceSize = state.surfaceSize;
         this.newlyRenderedFirstFrame = state.newlyRenderedFirstFrame;
         this.timedMetadata = state.timedMetadata;
+        this.currentMediaChapters = state.currentMediaChapters;
+        this.currentMediaEditions = state.currentMediaEditions;
         this.timeline = state.timeline;
         if (state.timeline instanceof PlaylistTimeline) {
           this.playlist = ((PlaylistTimeline) state.timeline).playlist;
@@ -613,6 +619,30 @@ public abstract class SimpleBasePlayer extends BasePlayer {
       }
 
       /**
+       * Sets the available seekable chapters for the current media item.
+       *
+       * @param currentMediaChapters The available seekable chapters.
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setCurrentMediaChapters(List<MediaChapter> currentMediaChapters) {
+        this.currentMediaChapters = ImmutableList.copyOf(currentMediaChapters);
+        return this;
+      }
+
+      /**
+       * Sets the available selectable editions for the current media item.
+       *
+       * @param currentMediaEditions The available selectable editions.
+       * @return This builder.
+       */
+      @CanIgnoreReturnValue
+      public Builder setCurrentMediaEditions(List<MediaEdition> currentMediaEditions) {
+        this.currentMediaEditions = ImmutableList.copyOf(currentMediaEditions);
+        return this;
+      }
+
+      /**
        * Sets the playlist as a list of {@link MediaItemData media items}.
        *
        * <p>All items must have unique {@linkplain MediaItemData.Builder#setUid UIDs}.
@@ -968,6 +998,12 @@ public abstract class SimpleBasePlayer extends BasePlayer {
     /** The most recent timed metadata. */
     public final Metadata timedMetadata;
 
+    /** The current media chapter entries. */
+    public final ImmutableList<MediaChapter> currentMediaChapters;
+
+    /** The current media edition entries. */
+    public final ImmutableList<MediaEdition> currentMediaEditions;
+
     /** The {@link Timeline}. */
     public final Timeline timeline;
 
@@ -1163,6 +1199,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
       this.surfaceSize = builder.surfaceSize;
       this.newlyRenderedFirstFrame = builder.newlyRenderedFirstFrame;
       this.timedMetadata = builder.timedMetadata;
+      this.currentMediaChapters = builder.currentMediaChapters;
+      this.currentMediaEditions = builder.currentMediaEditions;
       this.timeline = builder.timeline;
       this.currentTracks = checkNotNull(currentTracks);
       this.currentMetadata = currentMetadata;
@@ -1243,6 +1281,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
           && surfaceSize.equals(state.surfaceSize)
           && newlyRenderedFirstFrame == state.newlyRenderedFirstFrame
           && timedMetadata.equals(state.timedMetadata)
+          && currentMediaChapters.equals(state.currentMediaChapters)
+          && currentMediaEditions.equals(state.currentMediaEditions)
           && timeline.equals(state.timeline)
           && currentTracks.equals(state.currentTracks)
           && currentMetadata.equals(state.currentMetadata)
@@ -1291,6 +1331,8 @@ public abstract class SimpleBasePlayer extends BasePlayer {
       result = 31 * result + surfaceSize.hashCode();
       result = 31 * result + (newlyRenderedFirstFrame ? 1 : 0);
       result = 31 * result + timedMetadata.hashCode();
+      result = 31 * result + currentMediaChapters.hashCode();
+      result = 31 * result + currentMediaEditions.hashCode();
       result = 31 * result + timeline.hashCode();
       result = 31 * result + currentTracks.hashCode();
       result = 31 * result + currentMetadata.hashCode();
@@ -2718,6 +2760,30 @@ public abstract class SimpleBasePlayer extends BasePlayer {
   }
 
   @Override
+  public final List<MediaChapter> getCurrentMediaChapters() {
+    verifyApplicationThreadAndInitState();
+    return state.currentMediaChapters;
+  }
+
+  @Override
+  public final List<MediaEdition> getCurrentMediaEditions() {
+    verifyApplicationThreadAndInitState();
+    return state.currentMediaEditions;
+  }
+
+  @Override
+  public final boolean selectChapter(MediaChapter chapter) {
+    verifyApplicationThreadAndInitState();
+    return handleSelectChapter(chapter);
+  }
+
+  @Override
+  public final boolean selectEdition(MediaEdition edition) {
+    verifyApplicationThreadAndInitState();
+    return handleSelectEdition(edition);
+  }
+
+  @Override
   public final TrackSelectionParameters getTrackSelectionParameters() {
     verifyApplicationThreadAndInitState();
     return state.trackSelectionParameters;
@@ -3423,6 +3489,28 @@ public abstract class SimpleBasePlayer extends BasePlayer {
   }
 
   /**
+   * Handles calls to {@link Player#selectChapter}.
+   *
+   * @param chapter The chapter to select.
+   * @return Whether the chapter selection was handled.
+   */
+  @ForOverride
+  protected boolean handleSelectChapter(MediaChapter chapter) {
+    return false;
+  }
+
+  /**
+   * Handles calls to {@link Player#selectEdition}.
+   *
+   * @param edition The edition to select.
+   * @return Whether the edition selection was handled.
+   */
+  @ForOverride
+  protected boolean handleSelectEdition(MediaEdition edition) {
+    return false;
+  }
+
+  /**
    * Handles calls to {@link Player#setAudioOffsetMs}.
    *
    * <p>Will only be called if {@link Player#COMMAND_SET_AUDIO_OFFSET} is available.
@@ -3847,6 +3935,16 @@ public abstract class SimpleBasePlayer extends BasePlayer {
       listeners.queueEvent(
           Player.EVENT_TRACKS_CHANGED,
           listener -> listener.onTracksChanged(newState.currentTracks));
+    }
+    if (!previousState.currentMediaChapters.equals(newState.currentMediaChapters)) {
+      listeners.queueEvent(
+          Player.EVENT_MEDIA_CHAPTERS_CHANGED,
+          listener -> listener.onMediaChaptersChanged(newState.currentMediaChapters));
+    }
+    if (!previousState.currentMediaEditions.equals(newState.currentMediaEditions)) {
+      listeners.queueEvent(
+          Player.EVENT_MEDIA_EDITIONS_CHANGED,
+          listener -> listener.onMediaEditionsChanged(newState.currentMediaEditions));
     }
     if (!previousState.currentMetadata.equals(newState.currentMetadata)) {
       listeners.queueEvent(

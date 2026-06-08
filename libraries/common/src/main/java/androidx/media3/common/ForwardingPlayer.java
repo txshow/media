@@ -441,6 +441,30 @@ public class ForwardingPlayer implements Player {
     return player.getCurrentTracks();
   }
 
+  /** Calls {@link Player#getCurrentMediaChapters()} on the delegate and returns the result. */
+  @Override
+  public List<MediaChapter> getCurrentMediaChapters() {
+    return player.getCurrentMediaChapters();
+  }
+
+  /** Calls {@link Player#getCurrentMediaEditions()} on the delegate and returns the result. */
+  @Override
+  public List<MediaEdition> getCurrentMediaEditions() {
+    return player.getCurrentMediaEditions();
+  }
+
+  /** Calls {@link Player#selectChapter(MediaChapter)} on the delegate. */
+  @Override
+  public boolean selectChapter(MediaChapter chapter) {
+    return player.selectChapter(chapter);
+  }
+
+  /** Calls {@link Player#selectEdition(MediaEdition)} on the delegate. */
+  @Override
+  public boolean selectEdition(MediaEdition edition) {
+    return player.selectEdition(edition);
+  }
+
   /** Calls {@link Player#getTrackSelectionParameters()} on the delegate and returns the result. */
   @Override
   public TrackSelectionParameters getTrackSelectionParameters() {
@@ -944,6 +968,16 @@ public class ForwardingPlayer implements Player {
     @Override
     public void onTracksChanged(Tracks tracks) {
       listener.onTracksChanged(tracks);
+    }
+
+    @Override
+    public void onMediaChaptersChanged(List<MediaChapter> chapters) {
+      listener.onMediaChaptersChanged(chapters);
+    }
+
+    @Override
+    public void onMediaEditionsChanged(List<MediaEdition> editions) {
+      listener.onMediaEditionsChanged(editions);
     }
 
     @Override
