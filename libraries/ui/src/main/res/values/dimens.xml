@@ -47,6 +47,14 @@
     <dimen name="exo_styled_controls_padding">24dp</dimen>
     <dimen name="exo_styled_minimal_controls_margin_bottom">4dp</dimen>
 
+    <dimen name="exo_chapter_bubble_text_size">14sp</dimen>
+    <dimen name="exo_chapter_bubble_horizontal_padding">12dp</dimen>
+    <dimen name="exo_chapter_bubble_vertical_padding">6dp</dimen>
+    <dimen name="exo_chapter_bubble_corner_radius">16dp</dimen>
+    <dimen name="exo_chapter_bubble_margin">10dp</dimen>
+    <dimen name="exo_chapter_bubble_screen_inset">8dp</dimen>
+    <dimen name="exo_chapter_bubble_max_width">200dp</dimen>
+
     <dimen name="exo_error_message_height">32dp</dimen>
     <dimen name="exo_error_message_margin_bottom">64dp</dimen>
     <dimen name="exo_error_message_text_size">14sp</dimen>
