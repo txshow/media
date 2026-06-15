@@ -27,6 +27,7 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Point;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.util.AttributeSet;
@@ -44,6 +45,7 @@ import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Formatter;
 import java.util.Locale;
@@ -141,6 +143,9 @@ public class DefaultTimeBar extends View implements TimeBar {
   /** Default width for ad markers, in dp. */
   public static final int DEFAULT_AD_MARKER_WIDTH_DP = 4;
 
+  /** Default width for chapter marker gaps, in dp. */
+  public static final int DEFAULT_CHAPTER_GAP_WIDTH_DP = 2;
+
   /** Default diameter for the scrubber when enabled, in dp. */
   public static final int DEFAULT_SCRUBBER_ENABLED_SIZE_DP = 12;
 
@@ -204,6 +209,7 @@ public class DefaultTimeBar extends View implements TimeBar {
   private final Rect progressBar;
   private final Rect bufferedBar;
   private final Rect scrubberBar;
+  private final RectF barSegmentRect;
   private final Paint playedPaint;
   private final Paint bufferedPaint;
   private final Paint unplayedPaint;
@@ -215,6 +221,7 @@ public class DefaultTimeBar extends View implements TimeBar {
   private final int touchTargetHeight;
   private final int barGravity;
   private final int adMarkerWidth;
+  private final int chapterGapWidth;
   private final int scrubberEnabledSize;
   private final int scrubberDisabledSize;
   private final int scrubberDraggedSize;
@@ -243,6 +250,8 @@ public class DefaultTimeBar extends View implements TimeBar {
   private int adGroupCount;
   @Nullable private long[] adGroupTimesMs;
   @Nullable private boolean[] playedAdGroups;
+  private int chapterCount;
+  @Nullable private long[] chapterTimesMs;
 
   public DefaultTimeBar(Context context) {
     this(context, null);
@@ -277,9 +286,10 @@ public class DefaultTimeBar extends View implements TimeBar {
     progressBar = new Rect();
     bufferedBar = new Rect();
     scrubberBar = new Rect();
-    playedPaint = new Paint();
-    bufferedPaint = new Paint();
-    unplayedPaint = new Paint();
+    barSegmentRect = new RectF();
+    playedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    bufferedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+    unplayedPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     adMarkerPaint = new Paint();
     playedAdMarkerPaint = new Paint();
     scrubberPaint = new Paint();
@@ -295,9 +305,11 @@ public class DefaultTimeBar extends View implements TimeBar {
     int defaultBarHeight = dpToPx(density, DEFAULT_BAR_HEIGHT_DP);
     int defaultTouchTargetHeight = dpToPx(density, DEFAULT_TOUCH_TARGET_HEIGHT_DP);
     int defaultAdMarkerWidth = dpToPx(density, DEFAULT_AD_MARKER_WIDTH_DP);
+    int defaultChapterGapWidth = dpToPx(density, DEFAULT_CHAPTER_GAP_WIDTH_DP);
     int defaultScrubberEnabledSize = dpToPx(density, DEFAULT_SCRUBBER_ENABLED_SIZE_DP);
     int defaultScrubberDisabledSize = dpToPx(density, DEFAULT_SCRUBBER_DISABLED_SIZE_DP);
     int defaultScrubberDraggedSize = dpToPx(density, DEFAULT_SCRUBBER_DRAGGED_SIZE_DP);
+    chapterGapWidth = defaultChapterGapWidth;
     if (timebarAttrs != null) {
       TypedArray a =
           context
@@ -579,6 +591,38 @@ public class DefaultTimeBar extends View implements TimeBar {
     this.adGroupTimesMs = adGroupTimesMs;
     this.playedAdGroups = playedAdGroups;
     update();
+  }
+
+  @Override
+  public void setChapterTimesMs(@Nullable long[] chapterTimesMs, int chapterCount) {
+    setChapterTimesMs(chapterTimesMs, /* chapterLabels= */ null, chapterCount);
+  }
+
+  @Override
+  public void setChapterTimesMs(
+      @Nullable long[] chapterTimesMs, @Nullable String[] chapterLabels, int chapterCount) {
+    checkArgument(chapterCount >= 0);
+    checkArgument(
+        chapterCount == 0 || (chapterTimesMs != null && chapterTimesMs.length >= chapterCount));
+    checkArgument(chapterLabels == null || chapterLabels.length >= chapterCount);
+    this.chapterCount = chapterCount;
+    this.chapterTimesMs =
+        chapterCount == 0
+            ? null
+            : copySortedChapterTimesMs(checkNotNull(chapterTimesMs), chapterCount);
+    update();
+  }
+
+  int getPositionXInView(long positionMs) {
+    if (progressBar.width() <= 0 || duration <= 0) {
+      return progressBar.left;
+    }
+    long constrainedPosition = Util.constrainValue(positionMs, 0, duration);
+    return progressBar.left + (int) (progressBar.width() * constrainedPosition / duration);
+  }
+
+  int getProgressBarTopInView() {
+    return progressBar.top;
   }
 
   // View methods.
@@ -895,21 +939,21 @@ public class DefaultTimeBar extends View implements TimeBar {
     int barTop = progressBar.centerY() - progressBarHeight / 2;
     int barBottom = barTop + progressBarHeight;
     if (duration <= 0) {
-      canvas.drawRect(progressBar.left, barTop, progressBar.right, barBottom, unplayedPaint);
+      drawBarSegment(canvas, progressBar.left, progressBar.right, barTop, barBottom, unplayedPaint);
       return;
     }
     int bufferedLeft = bufferedBar.left;
     int bufferedRight = bufferedBar.right;
     int progressLeft = Math.max(Math.max(progressBar.left, bufferedRight), scrubberBar.right);
     if (progressLeft < progressBar.right) {
-      canvas.drawRect(progressLeft, barTop, progressBar.right, barBottom, unplayedPaint);
+      drawSegmentedBar(canvas, progressLeft, progressBar.right, barTop, barBottom, unplayedPaint);
     }
     bufferedLeft = Math.max(bufferedLeft, scrubberBar.right);
     if (bufferedRight > bufferedLeft) {
-      canvas.drawRect(bufferedLeft, barTop, bufferedRight, barBottom, bufferedPaint);
+      drawSegmentedBar(canvas, bufferedLeft, bufferedRight, barTop, barBottom, bufferedPaint);
     }
     if (scrubberBar.width() > 0) {
-      canvas.drawRect(scrubberBar.left, barTop, scrubberBar.right, barBottom, playedPaint);
+      drawSegmentedBar(canvas, scrubberBar.left, scrubberBar.right, barTop, barBottom, playedPaint);
     }
     if (adGroupCount == 0) {
       return;
@@ -927,6 +971,65 @@ public class DefaultTimeBar extends View implements TimeBar {
       Paint paint = playedAdGroups[i] ? playedAdMarkerPaint : adMarkerPaint;
       canvas.drawRect(markerLeft, barTop, markerLeft + adMarkerWidth, barBottom, paint);
     }
+  }
+
+  private void drawSegmentedBar(
+      Canvas canvas, int left, int right, int barTop, int barBottom, Paint paint) {
+    if (right <= left) {
+      return;
+    }
+    int gapWidth = Math.min(chapterGapWidth, progressBar.width());
+    if (chapterCount == 0 || gapWidth <= 0) {
+      drawBarSegment(canvas, left, right, barTop, barBottom, paint);
+      return;
+    }
+    long[] chapterTimesMs = checkNotNull(this.chapterTimesMs);
+    int drawLeft = left;
+    for (int i = 0; i < chapterCount; i++) {
+      long chapterTimeMs = chapterTimesMs[i];
+      if (chapterTimeMs == C.TIME_UNSET || chapterTimeMs <= 0 || chapterTimeMs >= duration) {
+        continue;
+      }
+      int gapLeft = getChapterGapLeft(chapterTimeMs, gapWidth);
+      int gapRight = gapLeft + gapWidth;
+      if (gapRight <= drawLeft) {
+        continue;
+      }
+      if (gapLeft >= right) {
+        break;
+      }
+      int segmentRight = Math.min(gapLeft, right);
+      if (segmentRight > drawLeft) {
+        drawBarSegment(canvas, drawLeft, segmentRight, barTop, barBottom, paint);
+      }
+      drawLeft = Math.max(drawLeft, gapRight);
+      if (drawLeft >= right) {
+        return;
+      }
+    }
+    drawBarSegment(canvas, drawLeft, right, barTop, barBottom, paint);
+  }
+
+  private void drawBarSegment(
+      Canvas canvas, int left, int right, int top, int bottom, Paint paint) {
+    if (right <= left) {
+      return;
+    }
+    float radius = (bottom - top) / 2f;
+    barSegmentRect.set(left, top, right, bottom);
+    canvas.drawRoundRect(barSegmentRect, radius, radius, paint);
+  }
+
+  private int getChapterGapLeft(long chapterTimeMs, int gapWidth) {
+    int gapCenter = progressBar.left + (int) (progressBar.width() * chapterTimeMs / duration);
+    return Util.constrainValue(
+        gapCenter - gapWidth / 2, progressBar.left, progressBar.right - gapWidth);
+  }
+
+  private static long[] copySortedChapterTimesMs(long[] chapterTimesMs, int chapterCount) {
+    long[] sortedChapterTimesMs = Arrays.copyOf(chapterTimesMs, chapterCount);
+    Arrays.sort(sortedChapterTimesMs);
+    return sortedChapterTimesMs;
   }
 
   private void drawPlayhead(Canvas canvas) {

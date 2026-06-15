@@ -107,6 +107,29 @@ public interface TimeBar {
   void setAdGroupTimesMs(
       @Nullable long[] adGroupTimesMs, @Nullable boolean[] playedAdGroups, int adGroupCount);
 
+  /**
+   * Sets the times of chapter markers.
+   *
+   * @param chapterTimesMs An array where the first {@code chapterCount} elements are chapter start
+   *     times in milliseconds. May be {@code null} if there are no chapters.
+   * @param chapterCount The number of chapters.
+   */
+  default void setChapterTimesMs(@Nullable long[] chapterTimesMs, int chapterCount) {}
+
+  /**
+   * Sets the times and labels of chapter markers.
+   *
+   * @param chapterTimesMs An array where the first {@code chapterCount} elements are chapter start
+   *     times in milliseconds. May be {@code null} if there are no chapters.
+   * @param chapterLabels An array where the first {@code chapterCount} elements are chapter labels.
+   *     May be {@code null} if labels are unavailable.
+   * @param chapterCount The number of chapters.
+   */
+  default void setChapterTimesMs(
+      @Nullable long[] chapterTimesMs, @Nullable String[] chapterLabels, int chapterCount) {
+    setChapterTimesMs(chapterTimesMs, chapterCount);
+  }
+
   /** Listener for scrubbing events. */
   interface OnScrubListener {
 
