@@ -508,6 +508,13 @@ This release includes the following changes since [1.10.0](#1100-2026-03-25):
         MIME types and move HDR and codec score preferences to quality
         preferences ([#3135](https://github.com/androidx/media/issues/3135)).
 *   Extractors:
+    *   MPEG-TS: Add Dolby Vision support in HLS/TS streams. The extractor now
+        detects the `DOVI` registration descriptor and the `0xB0` Dolby Vision
+        video descriptor in the PMT, and routes HEVC-based Dolby Vision
+        elementary streams to the Dolby Vision decoder with the correct profile,
+        level, and colour info. This fixes a green/magenta tint on
+        non-cross-compatible profiles (e.g. profile 5) that was caused by the
+        HEVC base layer being decoded without DV signalling.
     *   MP3: Ignore Xing data length if it is longer than the known stream
         length ([#3117](https://github.com/androidx/media/issues/3117)).
     *   Fix `ArrayIndexOutOfBoundsException` in `Mp4Extractor` when
