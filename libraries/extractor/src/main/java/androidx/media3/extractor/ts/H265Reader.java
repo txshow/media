@@ -44,6 +44,7 @@ public final class H265Reader implements ElementaryStreamReader {
   private final SeiReader seiReader;
   private final String containerMimeType;
   @Nullable private final DolbyVisionConfig dolbyVisionConfig;
+  @Nullable private final byte[] dolbyVisionCsd;
 
   private @MonotonicNonNull String formatId;
   private @MonotonicNonNull TrackOutput output;
@@ -85,9 +86,18 @@ public final class H265Reader implements ElementaryStreamReader {
       SeiReader seiReader,
       String containerMimeType,
       @Nullable DolbyVisionConfig dolbyVisionConfig) {
+    this(seiReader, containerMimeType, dolbyVisionConfig, /* dolbyVisionCsd= */ null);
+  }
+
+  H265Reader(
+      SeiReader seiReader,
+      String containerMimeType,
+      @Nullable DolbyVisionConfig dolbyVisionConfig,
+      @Nullable byte[] dolbyVisionCsd) {
     this.seiReader = seiReader;
     this.containerMimeType = containerMimeType;
     this.dolbyVisionConfig = dolbyVisionConfig;
+    this.dolbyVisionCsd = dolbyVisionCsd;
     prefixFlags = new boolean[3];
     vps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_VPS, 128);
     sps = new NalUnitTargetBuffer(NalUnitUtil.H265_NAL_UNIT_TYPE_SPS, 128);
@@ -230,7 +240,7 @@ public final class H265Reader implements ElementaryStreamReader {
       sps.endNalUnit(discardPadding);
       pps.endNalUnit(discardPadding);
       if (vps.isCompleted() && sps.isCompleted() && pps.isCompleted()) {
-        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType, dolbyVisionConfig);
+        Format format = parseMediaFormat(formatId, vps, sps, pps, containerMimeType);
         output.format(format);
         checkState(format.maxNumReorderSamples != Format.NO_VALUE);
         seiReader.setReorderingQueueSize(format.maxNumReorderSamples);
@@ -255,13 +265,12 @@ public final class H265Reader implements ElementaryStreamReader {
     }
   }
 
-  private static Format parseMediaFormat(
+  private Format parseMediaFormat(
       @Nullable String formatId,
       NalUnitTargetBuffer vps,
       NalUnitTargetBuffer sps,
       NalUnitTargetBuffer pps,
-      String containerMimeType,
-      @Nullable DolbyVisionConfig dolbyVisionConfig) {
+      String containerMimeType) {
     // Build codec-specific data.
     byte[] csdData = new byte[vps.nalLength + sps.nalLength + pps.nalLength];
     System.arraycopy(vps.nalData, 0, csdData, 0, vps.nalLength);
@@ -334,7 +343,11 @@ public final class H265Reader implements ElementaryStreamReader {
         .setPixelWidthHeightRatio(spsData.pixelWidthHeightRatio)
         .setMaxNumReorderSamples(spsData.maxNumReorderPics)
         .setMaxSubLayers(spsData.maxSubLayersMinus1 + 1)
-        .setInitializationData(Collections.singletonList(csdData))
+        .setInitializationData(
+            dolbyVisionCsd != null
+                ? CodecSpecificDataUtil.setDolbyVisionCsd(
+                    Collections.singletonList(csdData), dolbyVisionCsd)
+                : Collections.singletonList(csdData))
         .build();
   }
 
@@ -401,6 +414,11 @@ public final class H265Reader implements ElementaryStreamReader {
           isFirstPrefixNalUnit = !readingPrefix;
           readingPrefix = true;
         }
+      } else if (!readingSample
+          && (nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_RPU
+              || nalUnitType == NalUnitUtil.H265_NAL_UNIT_TYPE_DV_EL)) {
+        isFirstPrefixNalUnit = !readingPrefix;
+        readingPrefix = true;
       }
 
       // Look for the first slice flag if this NAL unit contains a slice_segment_layer_rbsp.

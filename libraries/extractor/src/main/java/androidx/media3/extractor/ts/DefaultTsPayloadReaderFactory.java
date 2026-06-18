@@ -206,9 +206,21 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
                     isSet(FLAG_DETECT_ACCESS_UNITS),
                     MimeTypes.VIDEO_MP2T));
       case TsExtractor.TS_STREAM_TYPE_H265:
+        @Nullable
+        DolbyVisionDescriptor dolbyVisionDescriptor =
+            esInfo.dolbyVisionConfig != null
+                ? DolbyVisionDescriptor.parseFromDescriptorBytes(esInfo.descriptorBytes)
+                : null;
+        @Nullable
+        byte[] dolbyVisionCsd =
+            DolbyVisionDescriptor.buildInitializationData(
+                esInfo.dolbyVisionConfig, dolbyVisionDescriptor);
         return new PesReader(
             new H265Reader(
-                buildSeiReader(esInfo), MimeTypes.VIDEO_MP2T, esInfo.dolbyVisionConfig));
+                buildSeiReader(esInfo),
+                MimeTypes.VIDEO_MP2T,
+                esInfo.dolbyVisionConfig,
+                dolbyVisionCsd));
       case TsExtractor.TS_STREAM_TYPE_SPLICE_INFO:
         return isSet(FLAG_IGNORE_SPLICE_INFO_STREAM)
             ? null
