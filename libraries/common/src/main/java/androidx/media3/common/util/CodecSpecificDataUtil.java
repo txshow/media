@@ -626,6 +626,31 @@ public final class CodecSpecificDataUtil {
   }
 
   /**
+   * Returns Dolby Vision initialization data with explicit base-layer compatibility signalling.
+   *
+   * @param profile The Dolby Vision codec profile. This is the integer profile, not the {@link
+   *     MediaCodecInfo.CodecProfileLevel} constant.
+   * @param level The Dolby Vision codec level. This is the integer level, not the {@link
+   *     MediaCodecInfo.CodecProfileLevel} constant.
+   * @param blSignalCompatibilityId The Dolby Vision base-layer signal compatibility id, or {@code
+   *     -1} to use the default for {@code profile}.
+   * @param mdCompression The Dolby Vision metadata compression value, or {@code -1} to use the
+   *     default for {@code profile}.
+   */
+  public static byte[] buildDolbyVisionInitializationData(
+      int profile, int level, int blSignalCompatibilityId, int mdCompression) {
+    byte[] dolbyVisionCsd = buildDolbyVisionInitializationData(profile, level);
+    int existingFlags = dolbyVisionCsd[4] & 0xFF;
+    int resolvedBlSignalCompatibilityId =
+        blSignalCompatibilityId >= 0 ? blSignalCompatibilityId : (existingFlags >> 4) & 0xF;
+    int resolvedMdCompression = mdCompression >= 0 ? mdCompression : (existingFlags >> 2) & 0x3;
+    dolbyVisionCsd[4] =
+        (byte)
+            (((resolvedBlSignalCompatibilityId & 0xF) << 4) | ((resolvedMdCompression & 0x3) << 2));
+    return dolbyVisionCsd;
+  }
+
+  /**
    * Returns initialization data for Opus according to <a
    * href="https://tools.ietf.org/html/rfc7845#section-5.1">RFC 7845: 5.1</a>.
    *
@@ -661,6 +686,29 @@ public final class CodecSpecificDataUtil {
       checkArgument(csd0SignatureString.equals("OpusHead"));
     }
     return Arrays.copyOfRange(csd0, payloadOffset, payloadOffset + payloadLength);
+  }
+
+  /**
+   * Returns a copy of {@code initializationData} with the Dolby Vision configuration record placed
+   * at index 2 (csd-2). Indices 0 and 1 are padded with empty byte arrays if not already present.
+   *
+   * @param initializationData The existing initialization data list, or {@code null}.
+   * @param dvCsd The Dolby Vision configuration record bytes.
+   * @return A new mutable list with the DV config at index 2.
+   */
+  public static List<byte[]> setDolbyVisionCsd(
+      @Nullable List<byte[]> initializationData, byte[] dvCsd) {
+    List<byte[]> result =
+        initializationData != null ? new ArrayList<>(initializationData) : new ArrayList<>();
+    while (result.size() < 2) {
+      result.add(new byte[0]);
+    }
+    if (result.size() < 3) {
+      result.add(dvCsd);
+    } else {
+      result.set(2, dvCsd);
+    }
+    return result;
   }
 
   /**
