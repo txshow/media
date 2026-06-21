@@ -24,6 +24,7 @@ import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AdViewProvider;
 import androidx.media3.common.C;
+import androidx.media3.common.FileTypes;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
@@ -37,6 +38,7 @@ import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider;
 import androidx.media3.exoplayer.source.ads.AdsLoader;
 import androidx.media3.exoplayer.source.ads.AdsMediaSource;
+import androidx.media3.exoplayer.source.iso.IsoMediaSource;
 import androidx.media3.exoplayer.upstream.CmcdConfiguration;
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
 import androidx.media3.exoplayer.util.ReleasableExecutor;
@@ -543,45 +545,56 @@ public final class DefaultMediaSourceFactory implements MediaSourceFactory {
               checkNotNull(externalImageLoader))
           .createMediaSource(mediaItem);
     }
-    @C.ContentType
-    int type =
-        Util.inferContentTypeForUriAndMimeType(
-            mediaItem.localConfiguration.uri, mediaItem.localConfiguration.mimeType);
-    if (mediaItem.localConfiguration.imageDurationMs != C.TIME_UNSET) {
-      delegateFactoryLoader.setJpegExtractorFlags(JpegExtractor.FLAG_READ_IMAGE);
-      delegateFactoryLoader.setHeifExtractorFlags(HeifExtractor.FLAG_READ_IMAGE);
-    }
+    MediaSource mediaSource;
+    int fileType = FileTypes.inferFileTypeFromUri(mediaItem.localConfiguration.uri);
+    if (fileType == FileTypes.ISO
+        || MimeTypes.VIDEO_ISO.equals(mediaItem.localConfiguration.mimeType)) {
+      IsoMediaSource.Factory isoMediaSourceFactory = new IsoMediaSource.Factory(dataSourceFactory);
+      if (loadErrorHandlingPolicy != null) {
+        isoMediaSourceFactory.setLoadErrorHandlingPolicy(loadErrorHandlingPolicy);
+      }
+      mediaSource = isoMediaSourceFactory.createMediaSource(mediaItem);
+    } else {
+      @C.ContentType
+      int type =
+          Util.inferContentTypeForUriAndMimeType(
+              mediaItem.localConfiguration.uri, mediaItem.localConfiguration.mimeType);
+      if (mediaItem.localConfiguration.imageDurationMs != C.TIME_UNSET) {
+        delegateFactoryLoader.setJpegExtractorFlags(JpegExtractor.FLAG_READ_IMAGE);
+        delegateFactoryLoader.setHeifExtractorFlags(HeifExtractor.FLAG_READ_IMAGE);
+      }
 
-    MediaSource.Factory mediaSourceFactory;
-    try {
-      mediaSourceFactory = delegateFactoryLoader.getMediaSourceFactory(type);
-    } catch (ClassNotFoundException e) {
-      throw new IllegalStateException(e);
-    }
-    MediaItem.LiveConfiguration.Builder liveConfigurationBuilder =
-        mediaItem.liveConfiguration.buildUpon();
-    if (mediaItem.liveConfiguration.targetOffsetMs == C.TIME_UNSET) {
-      liveConfigurationBuilder.setTargetOffsetMs(liveTargetOffsetMs);
-    }
-    if (mediaItem.liveConfiguration.minPlaybackSpeed == C.RATE_UNSET) {
-      liveConfigurationBuilder.setMinPlaybackSpeed(liveMinSpeed);
-    }
-    if (mediaItem.liveConfiguration.maxPlaybackSpeed == C.RATE_UNSET) {
-      liveConfigurationBuilder.setMaxPlaybackSpeed(liveMaxSpeed);
-    }
-    if (mediaItem.liveConfiguration.minOffsetMs == C.TIME_UNSET) {
-      liveConfigurationBuilder.setMinOffsetMs(liveMinOffsetMs);
-    }
-    if (mediaItem.liveConfiguration.maxOffsetMs == C.TIME_UNSET) {
-      liveConfigurationBuilder.setMaxOffsetMs(liveMaxOffsetMs);
-    }
-    MediaItem.LiveConfiguration liveConfiguration = liveConfigurationBuilder.build();
-    // Make sure to retain the very same media item instance, if no value needs to be overridden.
-    if (!liveConfiguration.equals(mediaItem.liveConfiguration)) {
-      mediaItem = mediaItem.buildUpon().setLiveConfiguration(liveConfiguration).build();
-    }
+      MediaSource.Factory mediaSourceFactory;
+      try {
+        mediaSourceFactory = delegateFactoryLoader.getMediaSourceFactory(type);
+      } catch (ClassNotFoundException e) {
+        throw new IllegalStateException(e);
+      }
+      MediaItem.LiveConfiguration.Builder liveConfigurationBuilder =
+          mediaItem.liveConfiguration.buildUpon();
+      if (mediaItem.liveConfiguration.targetOffsetMs == C.TIME_UNSET) {
+        liveConfigurationBuilder.setTargetOffsetMs(liveTargetOffsetMs);
+      }
+      if (mediaItem.liveConfiguration.minPlaybackSpeed == C.RATE_UNSET) {
+        liveConfigurationBuilder.setMinPlaybackSpeed(liveMinSpeed);
+      }
+      if (mediaItem.liveConfiguration.maxPlaybackSpeed == C.RATE_UNSET) {
+        liveConfigurationBuilder.setMaxPlaybackSpeed(liveMaxSpeed);
+      }
+      if (mediaItem.liveConfiguration.minOffsetMs == C.TIME_UNSET) {
+        liveConfigurationBuilder.setMinOffsetMs(liveMinOffsetMs);
+      }
+      if (mediaItem.liveConfiguration.maxOffsetMs == C.TIME_UNSET) {
+        liveConfigurationBuilder.setMaxOffsetMs(liveMaxOffsetMs);
+      }
+      MediaItem.LiveConfiguration liveConfiguration = liveConfigurationBuilder.build();
+      // Make sure to retain the very same media item instance, if no value needs to be overridden.
+      if (!liveConfiguration.equals(mediaItem.liveConfiguration)) {
+        mediaItem = mediaItem.buildUpon().setLiveConfiguration(liveConfiguration).build();
+      }
 
-    MediaSource mediaSource = mediaSourceFactory.createMediaSource(mediaItem);
+      mediaSource = mediaSourceFactory.createMediaSource(mediaItem);
+    }
 
     List<MediaItem.SubtitleConfiguration> subtitleConfigurations =
         castNonNull(mediaItem.localConfiguration).subtitleConfigurations;

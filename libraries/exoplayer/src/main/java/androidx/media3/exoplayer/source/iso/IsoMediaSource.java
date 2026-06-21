@@ -1,0 +1,335 @@
+/*
+ * Copyright (C) 2016 The Android Open Source Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package androidx.media3.exoplayer.source.iso;
+
+import static com.google.common.base.Preconditions.checkNotNull;
+
+import android.net.Uri;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.media3.common.C;
+import androidx.media3.common.MediaChapter;
+import androidx.media3.common.MediaEdition;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.Timeline;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.datasource.TransferListener;
+import androidx.media3.exoplayer.drm.DrmSessionManagerProvider;
+import androidx.media3.exoplayer.source.CompositeMediaSource;
+import androidx.media3.exoplayer.source.LoadEventInfo;
+import androidx.media3.exoplayer.source.MediaChapterProvider;
+import androidx.media3.exoplayer.source.MediaEditionSelector;
+import androidx.media3.exoplayer.source.MediaLoadData;
+import androidx.media3.exoplayer.source.MediaPeriod;
+import androidx.media3.exoplayer.source.MediaSource;
+import androidx.media3.exoplayer.upstream.Allocator;
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy;
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo;
+import androidx.media3.exoplayer.upstream.Loader;
+import com.google.common.collect.ImmutableList;
+import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+
+public final class IsoMediaSource extends CompositeMediaSource<Integer>
+    implements MediaChapterProvider, MediaEditionSelector {
+
+  private static final String EDITION_FRAGMENT_PREFIX = "edition=";
+
+  private final DataSource.Factory dataSourceFactory;
+  private final LoadErrorHandlingPolicy loadErrorHandlingPolicy;
+  private final MediaItem mediaItem;
+  private final Map<Integer, MediaSource> editionSources;
+  private final Map<Integer, Timeline> editionTimelines;
+  private final Map<MediaPeriod, Integer> periodEditionIndices;
+  private final int requestedEditionIndex;
+
+  @Nullable private volatile ImmutableList<MediaChapter> availableChapters;
+  @Nullable private volatile ImmutableList<MediaEdition> availableEditions;
+  private volatile int selectedEditionIndex;
+
+  @Nullable private IsoParsedMedia parsedMedia;
+  @Nullable private Loader loader;
+  @Nullable private IOException sourceError;
+
+  private IsoMediaSource(
+      MediaItem mediaItem,
+      DataSource.Factory dataSourceFactory,
+      LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
+    this.mediaItem = mediaItem;
+    this.dataSourceFactory = dataSourceFactory;
+    this.loadErrorHandlingPolicy = loadErrorHandlingPolicy;
+    this.requestedEditionIndex =
+        mediaItem.localConfiguration != null
+            ? parseEditionIndex(mediaItem.localConfiguration.uri)
+            : C.INDEX_UNSET;
+    this.selectedEditionIndex = requestedEditionIndex;
+    this.editionSources = new HashMap<>();
+    this.editionTimelines = new HashMap<>();
+    this.periodEditionIndices = new IdentityHashMap<>();
+  }
+
+  public static int parseEditionIndex(Uri uri) {
+    String fragment = uri.getFragment();
+    if (fragment != null && fragment.startsWith(EDITION_FRAGMENT_PREFIX)) {
+      try {
+        return Integer.parseInt(fragment.substring(EDITION_FRAGMENT_PREFIX.length()));
+      } catch (NumberFormatException ignored) {
+      }
+    }
+    return C.INDEX_UNSET;
+  }
+
+  @Override
+  public int getSelectedMediaEditionIndex() {
+    return selectedEditionIndex;
+  }
+
+  @Nullable
+  @Override
+  public List<MediaChapter> getMediaChapters() {
+    return availableChapters;
+  }
+
+  @Nullable
+  @Override
+  public List<MediaEdition> getMediaEditions() {
+    return availableEditions;
+  }
+
+  @Override
+  public boolean selectEdition(MediaEdition edition) {
+    IsoParsedMedia parsed = parsedMedia;
+    if (parsed == null || !parsed.canSelectEdition(edition.index)) {
+      return false;
+    }
+    return selectEdition(edition.index, parsed);
+  }
+
+  @NonNull
+  @Override
+  public MediaItem getMediaItem() {
+    return mediaItem;
+  }
+
+  @Override
+  protected void prepareSourceInternal(@Nullable TransferListener mediaTransferListener) {
+    super.prepareSourceInternal(mediaTransferListener);
+    loader = new Loader("IsoMediaSource");
+    Uri isoUri =
+        mediaItem.localConfiguration != null ? mediaItem.localConfiguration.uri : Uri.EMPTY;
+    IsoParseLoadable loadable = new IsoParseLoadable(mediaItem, dataSourceFactory, isoUri);
+    loader.startLoading(
+        loadable,
+        new ParseCallback(),
+        loadErrorHandlingPolicy.getMinimumLoadableRetryCount(C.DATA_TYPE_MEDIA));
+  }
+
+  @Override
+  public void maybeThrowSourceInfoRefreshError() throws IOException {
+    if (sourceError != null) {
+      throw sourceError;
+    }
+    if (loader != null) {
+      loader.maybeThrowError();
+    }
+    super.maybeThrowSourceInfoRefreshError();
+  }
+
+  @Override
+  protected void onChildSourceInfoRefreshed(
+      Integer editionIndex, @NonNull MediaSource mediaSource, @NonNull Timeline newTimeline) {
+    editionTimelines.put(editionIndex, newTimeline);
+    if (editionIndex == selectedEditionIndex) {
+      refreshSourceInfo(newTimeline);
+    }
+  }
+
+  @NonNull
+  @Override
+  public MediaPeriod createPeriod(
+      @NonNull MediaPeriodId id, @NonNull Allocator allocator, long startPositionUs) {
+    MediaSource source = checkNotNull(editionSources.get(selectedEditionIndex));
+    MediaPeriod period = source.createPeriod(id, allocator, startPositionUs);
+    periodEditionIndices.put(period, selectedEditionIndex);
+    return period;
+  }
+
+  @Override
+  public void releasePeriod(@NonNull MediaPeriod mediaPeriod) {
+    Integer editionIndex = periodEditionIndices.remove(mediaPeriod);
+    MediaSource source =
+        editionIndex != null
+            ? editionSources.get(editionIndex)
+            : editionSources.get(selectedEditionIndex);
+    checkNotNull(source).releasePeriod(mediaPeriod);
+  }
+
+  @Override
+  protected void releaseSourceInternal() {
+    super.releaseSourceInternal();
+    if (loader != null) {
+      loader.release();
+      loader = null;
+    }
+    if (parsedMedia != null) {
+      parsedMedia.close();
+      parsedMedia = null;
+    }
+    availableChapters = null;
+    availableEditions = null;
+    sourceError = null;
+    editionSources.clear();
+    editionTimelines.clear();
+    periodEditionIndices.clear();
+  }
+
+  private boolean selectEdition(int editionIndex, IsoParsedMedia parsed) {
+    try {
+      prepareEditionSource(editionIndex, parsed);
+    } catch (IOException e) {
+      sourceError = e;
+      return false;
+    }
+    sourceError = null;
+    selectedEditionIndex = parsed.resolveEditionIndex(editionIndex);
+    availableEditions = parsed.getEditions(selectedEditionIndex);
+    availableChapters = parsed.getChapters(selectedEditionIndex);
+    Timeline timeline = editionTimelines.get(selectedEditionIndex);
+    if (timeline != null) {
+      refreshSourceInfo(timeline);
+    }
+    return true;
+  }
+
+  private void prepareEditionSource(int editionIndex, IsoParsedMedia parsed) throws IOException {
+    int resolvedEditionIndex = parsed.resolveEditionIndex(editionIndex);
+    MediaSource source = editionSources.get(resolvedEditionIndex);
+    if (source != null) {
+      return;
+    }
+    source = parsed.buildSource(resolvedEditionIndex, loadErrorHandlingPolicy);
+    editionSources.put(resolvedEditionIndex, source);
+    prepareChildSource(resolvedEditionIndex, source);
+  }
+
+  public static final class Factory implements MediaSource.Factory {
+
+    private final DataSource.Factory dataSourceFactory;
+    private LoadErrorHandlingPolicy loadErrorHandlingPolicy;
+
+    public Factory(DataSource.Factory dataSourceFactory) {
+      this.dataSourceFactory = dataSourceFactory;
+      loadErrorHandlingPolicy = new DefaultLoadErrorHandlingPolicy();
+    }
+
+    @NonNull
+    @Override
+    public MediaSource createMediaSource(@NonNull MediaItem mediaItem) {
+      return new IsoMediaSource(mediaItem, dataSourceFactory, loadErrorHandlingPolicy);
+    }
+
+    @NonNull
+    @Override
+    public MediaSource.Factory setDrmSessionManagerProvider(
+        @NonNull DrmSessionManagerProvider drmSessionManagerProvider) {
+      return this;
+    }
+
+    @NonNull
+    @Override
+    public MediaSource.Factory setLoadErrorHandlingPolicy(
+        @NonNull LoadErrorHandlingPolicy loadErrorHandlingPolicy) {
+      this.loadErrorHandlingPolicy = checkNotNull(loadErrorHandlingPolicy);
+      return this;
+    }
+
+    @NonNull
+    @Override
+    public @C.ContentType int[] getSupportedTypes() {
+      return new int[] {C.CONTENT_TYPE_OTHER};
+    }
+  }
+
+  private final class ParseCallback implements Loader.Callback<IsoParseLoadable> {
+
+    @Override
+    public void onLoadCompleted(
+        IsoParseLoadable loadable, long elapsedRealtimeMs, long loadDurationMs) {
+      loadErrorHandlingPolicy.onLoadTaskConcluded(loadable.loadTaskId);
+      IsoParsedMedia parsed = loadable.takeResult();
+      if (parsed == null) {
+        return;
+      }
+      parsedMedia = parsed;
+      selectedEditionIndex = parsed.resolveEditionIndex(requestedEditionIndex);
+      availableEditions = parsed.getEditions(selectedEditionIndex);
+      availableChapters = parsed.getChapters(selectedEditionIndex);
+      try {
+        prepareEditionSource(selectedEditionIndex, parsed);
+        sourceError = null;
+      } catch (IOException e) {
+        sourceError = e;
+      }
+    }
+
+    @Override
+    public void onLoadCanceled(
+        @NonNull IsoParseLoadable loadable,
+        long elapsedRealtimeMs,
+        long loadDurationMs,
+        boolean released) {
+      loadable.releaseResult();
+      loadErrorHandlingPolicy.onLoadTaskConcluded(loadable.loadTaskId);
+    }
+
+    @NonNull
+    @Override
+    public Loader.LoadErrorAction onLoadError(
+        @NonNull IsoParseLoadable loadable,
+        long elapsedRealtimeMs,
+        long loadDurationMs,
+        @NonNull IOException error,
+        int errorCount) {
+      LoadEventInfo loadEventInfo =
+          new LoadEventInfo(
+              loadable.loadTaskId,
+              loadable.dataSpec,
+              loadable.dataSpec.uri,
+              Collections.emptyMap(),
+              elapsedRealtimeMs,
+              loadDurationMs,
+              /* bytesLoaded= */ 0);
+      long retryDelayMs =
+          loadErrorHandlingPolicy.getRetryDelayMsFor(
+              new LoadErrorInfo(
+                  loadEventInfo, new MediaLoadData(C.DATA_TYPE_MEDIA), error, errorCount));
+      Loader.LoadErrorAction action =
+          retryDelayMs != C.TIME_UNSET
+              ? Loader.createRetryAction(/* resetErrorCount= */ false, retryDelayMs)
+              : Loader.DONT_RETRY_FATAL;
+      if (!action.isRetry()) {
+        loadable.releaseResult();
+        loadErrorHandlingPolicy.onLoadTaskConcluded(loadable.loadTaskId);
+      }
+      return action;
+    }
+  }
+}
