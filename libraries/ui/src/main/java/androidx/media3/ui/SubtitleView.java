@@ -141,6 +141,9 @@ public final class SubtitleView extends FrameLayout {
   private Output output;
   private View innerSubtitleView;
 
+  private static final long BITMAP_CUE_CLEAR_DELAY_MS = 100;
+  @Nullable private Runnable pendingClearRunnable;
+
   public SubtitleView(Context context) {
     this(context, null);
   }
@@ -172,12 +175,55 @@ public final class SubtitleView extends FrameLayout {
    */
   public void setCues(@Nullable List<Cue> cues) {
     List<Cue> newCues = cues != null ? new ArrayList<>(cues) : Collections.emptyList();
+    if (newCues.isEmpty() && containsBitmap(this.cues)) {
+      if (pendingClearRunnable == null) {
+        scheduleBitmapCueClear();
+      }
+      return;
+    }
     if (newCues.size() > 1) {
       Collections.sort(
           newCues, (firstCue, secondCue) -> Integer.compare(firstCue.zIndex, secondCue.zIndex));
     }
+    cancelPendingBitmapCueClear();
     this.cues = newCues;
     updateOutput();
+  }
+
+  private boolean containsBitmap(List<Cue> cues) {
+    for (Cue cue : cues) {
+      if (cue.bitmap != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private void scheduleBitmapCueClear() {
+    postDelayed(pendingClearRunnable = this::onBitmapCueClearTimeout, BITMAP_CUE_CLEAR_DELAY_MS);
+  }
+
+  private void onBitmapCueClearTimeout() {
+    pendingClearRunnable = null;
+    cues = Collections.emptyList();
+    updateOutput();
+  }
+
+  private void cancelPendingBitmapCueClear() {
+    if (pendingClearRunnable != null) {
+      removeCallbacks(pendingClearRunnable);
+      pendingClearRunnable = null;
+    }
+  }
+
+  @Override
+  protected void onDetachedFromWindow() {
+    if (pendingClearRunnable != null) {
+      cancelPendingBitmapCueClear();
+      cues = Collections.emptyList();
+      updateOutput();
+    }
+    super.onDetachedFromWindow();
   }
 
   /**
