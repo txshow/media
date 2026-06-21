@@ -319,6 +319,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable private final PlayerControlView controller;
   @Nullable private final FrameLayout adOverlayFrameLayout;
   @Nullable private final FrameLayout overlayFrameLayout;
+  @Nullable private PlayerDebugView debugView;
   private final Handler mainLooperHandler;
   private final Rect tempContentFrameBounds;
   private final Rect tempSubtitleViewBounds;
@@ -719,6 +720,9 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
     }
 
     @Nullable Player oldPlayer = this.player;
+    if (debugView != null) {
+      debugView.setPlayer(player);
+    }
     if (oldPlayer != null) {
       oldPlayer.removeListener(componentListener);
       if (oldPlayer.isCommandAvailable(COMMAND_SET_VIDEO_SURFACE)) {
@@ -797,6 +801,9 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Override
   protected void onDetachedFromWindow() {
     super.onDetachedFromWindow();
+    if (debugView != null) {
+      debugView.hide();
+    }
     danmakuController.setPlayer(null);
     danmakuController.setView(null);
   }
@@ -1487,6 +1494,22 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable
   public FrameLayout getOverlayFrameLayout() {
     return overlayFrameLayout;
+  }
+
+  /** Returns whether the playback debug view is currently visible. */
+  @UnstableApi
+  public boolean isDebugViewVisible() {
+    return debugView != null && debugView.isVisible();
+  }
+
+  /** Toggles the playback debug view. */
+  @UnstableApi
+  public void toggleDebugView() {
+    checkState(Looper.myLooper() == Looper.getMainLooper());
+    if (debugView == null) {
+      debugView = new PlayerDebugView(this);
+    }
+    debugView.toggle(player);
   }
 
   /**

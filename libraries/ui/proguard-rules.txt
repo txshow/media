@@ -19,8 +19,16 @@
   void onImageAvailable(long, android.graphics.Bitmap);
 }
 
+-dontnote androidx.media3.exoplayer.util.DebugTextViewHelper
+-keep class androidx.media3.exoplayer.util.DebugTextViewHelper {
+  <init>(androidx.media3.exoplayer.ExoPlayer, android.widget.TextView);
+  void start();
+  void stop();
+}
+
 -dontnote androidx.media3.mpvplayer.MpvPlayer
 -keepclassmembers class androidx.media3.mpvplayer.MpvPlayer {
+  boolean toggleGeneralStats();
   void setOsdSurfaceView(android.view.SurfaceView);
   void clearOsdSurfaceView(android.view.SurfaceView);
 }
