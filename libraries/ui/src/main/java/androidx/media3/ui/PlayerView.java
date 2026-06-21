@@ -304,6 +304,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
 
   private final ComponentListener componentListener;
   @Nullable private final AspectRatioFrameLayout contentFrame;
+  private final MpvOsdSurfaceBridge mpvOsdSurfaceBridge;
   @Nullable private final View shutterView;
   @Nullable private View surfaceView;
   private boolean surfaceViewIgnoresVideoAspectRatio;
@@ -371,6 +372,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
 
     if (isInEditMode()) {
       contentFrame = null;
+      mpvOsdSurfaceBridge = new MpvOsdSurfaceBridge(/* contentFrame= */ null);
       shutterView = null;
       surfaceView = null;
       surfaceViewIgnoresVideoAspectRatio = false;
@@ -452,6 +454,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
     if (contentFrame != null) {
       setResizeModeRaw(contentFrame, resizeMode);
     }
+    mpvOsdSurfaceBridge = new MpvOsdSurfaceBridge(contentFrame);
 
     // Shutter view.
     shutterView = findViewById(R.id.exo_shutter);
@@ -727,6 +730,7 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
       }
       clearImageOutput(oldPlayer);
     }
+    mpvOsdSurfaceBridge.setPlayer(player);
     if (subtitleView != null) {
       subtitleView.setCues(null);
     }

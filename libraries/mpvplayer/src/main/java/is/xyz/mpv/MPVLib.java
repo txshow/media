@@ -34,13 +34,19 @@ public final class MPVLib {
 
   public static native void init();
 
-  public static native void destroy();
+  public static native int destroy();
 
   public static native void attachSurface(Surface surface);
 
   public static native void replaceSurface(Surface surface);
 
   public static native void detachSurface();
+
+  public static native void attachOsdSurface(Surface surface);
+
+  public static native void replaceOsdSurface(Surface surface);
+
+  public static native void detachOsdSurface();
 
   /** Queues a command whose completion is delivered to {@link EventObserver#eventCommandReply}. */
   public static native int enqueueCommand(long requestId, String[] cmd);

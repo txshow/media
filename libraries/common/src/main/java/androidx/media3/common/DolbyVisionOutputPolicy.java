@@ -23,6 +23,7 @@ import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.view.Display;
 import androidx.annotation.IntDef;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.util.UnstableApi;
 import java.lang.annotation.Documented;
@@ -56,27 +57,35 @@ public final class DolbyVisionOutputPolicy {
    * Returns whether native Dolby Vision output is allowed on the default display by {@code mode}.
    */
   public static boolean isNativeOutputAllowed(Context context, @Mode int mode) {
-    if (mode == ASSUME_SUPPORTED) {
-      return true;
+    if (mode != AUTO) {
+      return mode == ASSUME_SUPPORTED;
     }
-    if (mode == ASSUME_UNSUPPORTED || SDK_INT < 24) {
+    if (SDK_INT < 24) {
       return false;
     }
     Context applicationContext = context.getApplicationContext();
-    return Api24.doesCurrentDisplaySupportDolbyVision(
-        applicationContext != null ? applicationContext : context);
+    Context displayContext = applicationContext != null ? applicationContext : context;
+    DisplayManager displayManager =
+        (DisplayManager) displayContext.getSystemService(Context.DISPLAY_SERVICE);
+    Display display = displayManager == null ? null : displayManager.getDisplay(DEFAULT_DISPLAY);
+    return isNativeOutputAllowedOnDisplay(display, mode);
+  }
+
+  /** Returns whether native Dolby Vision output is allowed on {@code display} by {@code mode}. */
+  public static boolean isNativeOutputAllowedOnDisplay(@Nullable Display display, @Mode int mode) {
+    if (mode == ASSUME_SUPPORTED) {
+      return true;
+    }
+    if (mode == ASSUME_UNSUPPORTED || SDK_INT < 24 || display == null) {
+      return false;
+    }
+    return Api24.doesDisplaySupportDolbyVision(display);
   }
 
   @RequiresApi(24)
   private static final class Api24 {
 
-    public static boolean doesCurrentDisplaySupportDolbyVision(Context context) {
-      DisplayManager displayManager =
-          (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
-      Display display = displayManager == null ? null : displayManager.getDisplay(DEFAULT_DISPLAY);
-      if (display == null) {
-        return false;
-      }
+    public static boolean doesDisplaySupportDolbyVision(Display display) {
       if (SDK_INT >= 34) {
         return containsDolbyVision(Api34.getSupportedHdrTypes(display));
       }

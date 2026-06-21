@@ -16,7 +16,6 @@
 package androidx.media3.mpvplayer.video;
 
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.OPT_FORCE_WINDOW;
-import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_ANDROID_DISPLAY_PEAK;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_ANDROID_SURFACE_SIZE;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.VALUE_YES;
 
@@ -34,8 +33,6 @@ final class MpvNativeSurface {
   private final MpvSurfaceController.Host host;
 
   @Nullable private Surface surface;
-  private boolean displayPeakLuminanceApplied;
-  private double displayPeakLuminance;
   private Size surfaceSize;
 
   MpvNativeSurface(MpvClient client, MpvSurfaceController.Host host) {
@@ -44,7 +41,7 @@ final class MpvNativeSurface {
     this.surfaceSize = Size.UNKNOWN;
   }
 
-  private static boolean isSurfaceUsable(@Nullable Surface surface) {
+  static boolean isSurfaceUsable(@Nullable Surface surface) {
     return surface != null && surface.isValid();
   }
 
@@ -63,7 +60,6 @@ final class MpvNativeSurface {
 
   void onNativeSessionEnded() {
     surface = null;
-    displayPeakLuminanceApplied = false;
   }
 
   SurfaceChange setSurface(@Nullable Surface surface) {
@@ -93,14 +89,6 @@ final class MpvNativeSurface {
     return true;
   }
 
-  void setDisplayPeakLuminance(double displayPeakLuminance) {
-    if (Double.compare(this.displayPeakLuminance, displayPeakLuminance) != 0) {
-      this.displayPeakLuminance = displayPeakLuminance;
-      displayPeakLuminanceApplied = false;
-    }
-    applyDisplayPeakLuminanceToMpv();
-  }
-
   private boolean detachSurfaceFromMpv() {
     if (!host.isInitialized()) {
       return true;
@@ -112,7 +100,6 @@ final class MpvNativeSurface {
     if (!host.isInitialized()) {
       return true;
     }
-    applyDisplayPeakLuminanceToMpv();
     boolean surfaceApplied =
         replaceExistingSurface
             ? client.replaceSurface(nextSurface)
@@ -123,14 +110,6 @@ final class MpvNativeSurface {
     applySurfaceSizeToMpv();
     client.setPropertyString(OPT_FORCE_WINDOW, VALUE_YES);
     return true;
-  }
-
-  private void applyDisplayPeakLuminanceToMpv() {
-    if (!host.isInitialized() || displayPeakLuminanceApplied) {
-      return;
-    }
-    displayPeakLuminanceApplied =
-        client.setPropertyDouble(PROP_ANDROID_DISPLAY_PEAK, displayPeakLuminance);
   }
 
   private void applySurfaceSizeToMpv() {

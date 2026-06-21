@@ -15,6 +15,8 @@
  */
 package androidx.media3.mpvplayer;
 
+import android.view.Display;
+import androidx.annotation.Nullable;
 import androidx.media3.mpvplayer.audio.MpvAudioFocusManager;
 import androidx.media3.mpvplayer.trackselection.MpvTrackController;
 import androidx.media3.mpvplayer.video.MpvSurfaceController;
@@ -55,6 +57,21 @@ final class MpvComponentListener
   @Override
   public void resetRenderedFirstFrame() {
     player.resetRenderedFirstFrame();
+  }
+
+  @Override
+  public void setDirectVideoDisplay(@Nullable Display display) {
+    player.setDirectVideoDisplay(display);
+  }
+
+  @Override
+  public void setDirectVideoOutputConfigured(boolean configured) {
+    player.setDirectVideoOutputConfigured(configured);
+  }
+
+  @Override
+  public void setDirectOsdOutputConfigured(boolean configured) {
+    player.setDirectOsdOutputConfigured(configured);
   }
 
   @Override

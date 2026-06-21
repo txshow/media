@@ -360,6 +360,7 @@ final class MpvPlayerHosts {
                 player.isHardwareDecodeEnabled(), playbackProperties.getHardwareDecode()));
         subtitleController.applyOptionsIfInitialized();
         surfaceController.onInitialized();
+        options.applyRuntimeDolbyVisionOutputMode(playbackProperties::setStringOptionOrProperty);
       }
 
       @Override
