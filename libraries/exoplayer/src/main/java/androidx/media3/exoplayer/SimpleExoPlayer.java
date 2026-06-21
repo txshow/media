@@ -70,7 +70,7 @@ import java.util.List;
 @UnstableApi
 @Deprecated
 @SuppressWarnings("deprecation") // The whole class is deprecated so using deprecated things is OK.
-public class SimpleExoPlayer extends BasePlayer implements ExoPlayer {
+public class SimpleExoPlayer extends BasePlayer implements ExoPlayer, ExoPlayerDebugInfo {
 
   /**
    * @deprecated Use {@link ExoPlayer.Builder} instead.
@@ -748,6 +748,33 @@ public class SimpleExoPlayer extends BasePlayer implements ExoPlayer {
   public Format getAudioFormat() {
     blockUntilConstructorFinished();
     return player.getAudioFormat();
+  }
+
+  @Override
+  @Nullable
+  public String getVideoDecoderName() {
+    blockUntilConstructorFinished();
+    return player.getVideoDecoderName();
+  }
+
+  @Override
+  @Nullable
+  public String getAudioDecoderName() {
+    blockUntilConstructorFinished();
+    return player.getAudioDecoderName();
+  }
+
+  @Override
+  public boolean isAudioTrackInitialized() {
+    blockUntilConstructorFinished();
+    return player.isAudioTrackInitialized();
+  }
+
+  @Override
+  @Nullable
+  public Object getVideoOutput() {
+    blockUntilConstructorFinished();
+    return player.getVideoOutput();
   }
 
   @Override
