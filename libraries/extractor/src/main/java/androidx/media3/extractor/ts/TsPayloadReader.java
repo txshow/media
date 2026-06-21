@@ -63,6 +63,15 @@ public interface TsPayloadReader {
      */
     @Nullable
     TsPayloadReader createPayloadReader(int streamType, EsInfo esInfo);
+
+    /**
+     * Returns a {@link TsPayloadReader} for a given stream type, elementary PID, and elementary
+     * stream information.
+     */
+    @Nullable
+    default TsPayloadReader createPayloadReader(int streamType, int elementaryPid, EsInfo esInfo) {
+      return createPayloadReader(streamType, esInfo);
+    }
   }
 
   /** Holds information associated with a PMT entry. */
@@ -112,6 +121,7 @@ public interface TsPayloadReader {
     public final @AudioType int audioType;
     public final List<DvbSubtitleInfo> dvbSubtitleInfos;
     public final byte[] descriptorBytes;
+
     /** The Dolby Vision configuration signalled in the PMT, or {@code null} if not present. */
     @Nullable public final DolbyVisionConfig dolbyVisionConfig;
 
@@ -141,7 +151,8 @@ public interface TsPayloadReader {
      * @param audioType The audio type of the stream, as defined by ISO/IEC 13818-1, section 2.6.18.
      * @param dvbSubtitleInfos Information about DVB subtitles associated to the stream.
      * @param descriptorBytes The descriptor bytes associated to the stream.
-     * @param dolbyVisionConfig The Dolby Vision configuration signalled in the PMT, or {@code null}.
+     * @param dolbyVisionConfig The Dolby Vision configuration signalled in the PMT, or {@code
+     *     null}.
      */
     public EsInfo(
         int streamType,
