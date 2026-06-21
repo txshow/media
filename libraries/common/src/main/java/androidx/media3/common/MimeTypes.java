@@ -120,6 +120,7 @@ public final class MimeTypes {
   public static final String AUDIO_OGG = BASE_TYPE_AUDIO + "/ogg";
   public static final String AUDIO_WAV = BASE_TYPE_AUDIO + "/wav";
   public static final String AUDIO_MIDI = BASE_TYPE_AUDIO + "/midi";
+  public static final String AUDIO_AV3A = BASE_TYPE_AUDIO + "/av3a";
   @UnstableApi public static final String AUDIO_IAMF = BASE_TYPE_AUDIO + "/iamf";
 
   @UnstableApi
@@ -507,6 +508,8 @@ public final class MimeTypes {
         }
       }
       return mimeType == null ? MimeTypes.AUDIO_AAC : mimeType;
+    } else if (codec.startsWith("av3a")) {
+      return MimeTypes.AUDIO_AV3A;
     } else if (codec.startsWith("mha1")) {
       return MimeTypes.AUDIO_MPEGH_MHA1;
     } else if (codec.startsWith("mhm1")) {
