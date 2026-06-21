@@ -183,6 +183,8 @@ object Media3Modules {
           "Media3 Inspector Frame module",
           allowKt = false,
         ),
+      "lib-mpvplayer" to
+        Media3Module("libraries/mpvplayer", "media3-mpvplayer", "Media3 mpv player module"),
       "lib-muxer" to
         Media3Module("libraries/muxer", "media3-muxer", "Media3 Muxer module", allowKt = false),
       "lib-session" to Media3Module("libraries/session", "media3-session", "Media3 Session module"),
@@ -202,6 +204,8 @@ object Media3Modules {
           "media3-ui-compose-material3",
           "Media3 UI Compose Material3 module",
         ),
+      "lib-ui-danmaku" to
+        Media3Module("libraries/ui_danmaku", "media3-ui-danmaku", "Media3 UI Danmaku module"),
       "lib-ui-leanback" to
         Media3Module("libraries/ui_leanback", "media3-ui-leanback", "Media3 Leanback UI module"),
       "test-data" to Media3Module("libraries/test_data", null, null),
