@@ -58,6 +58,7 @@ public final class FileTypes {
    *   <li>{@link #WEBP}
    *   <li>{@link #BMP}
    *   <li>{@link #HEIF}
+   *   <li>{@link #RM}
    *   <li>{@link #AVIF}
    *   <li>{@link #DTS}
    * </ul>
@@ -67,7 +68,7 @@ public final class FileTypes {
   @Target(TYPE_USE)
   @IntDef({
     UNKNOWN, AC3, AC4, ADTS, AMR, FLAC, FLV, MATROSKA, MP3, MP4, OGG, PS, TS, WAV, WEBVTT, JPEG,
-    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, DTS
+    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, RM, DTS
   })
   public @interface Type {}
 
@@ -140,6 +141,9 @@ public final class FileTypes {
   /** File type for the AVIF format. */
   public static final int AVIF = 21;
 
+  /** File type for the RealMedia format, including RM and RMVB. */
+  public static final int RM = 22;
+
   /** File type for the raw DTS audio format. */
   public static final int DTS = 28;
 
@@ -185,6 +189,8 @@ public final class FileTypes {
   private static final String EXTENSION_HEIC = ".heic";
   private static final String EXTENSION_HEIF = ".heif";
   private static final String EXTENSION_AVIF = ".avif";
+  private static final String EXTENSION_RM = ".rm";
+  private static final String EXTENSION_RMVB = ".rmvb";
   private static final String EXTENSION_DTS = ".dts";
 
   private FileTypes() {}
@@ -262,6 +268,8 @@ public final class FileTypes {
         return FileTypes.HEIF;
       case MimeTypes.IMAGE_AVIF:
         return FileTypes.AVIF;
+      case MimeTypes.APPLICATION_RM:
+        return FileTypes.RM;
       case MimeTypes.AUDIO_DTS:
       case MimeTypes.AUDIO_DTS_HD:
       case MimeTypes.AUDIO_DTS_HD_MA:
@@ -346,6 +354,8 @@ public final class FileTypes {
       return FileTypes.HEIF;
     } else if (filename.endsWith(EXTENSION_AVIF)) {
       return FileTypes.AVIF;
+    } else if (filename.endsWith(EXTENSION_RM) || filename.endsWith(EXTENSION_RMVB)) {
+      return FileTypes.RM;
     } else if (filename.endsWith(EXTENSION_DTS)) {
       return FileTypes.DTS;
     } else {
