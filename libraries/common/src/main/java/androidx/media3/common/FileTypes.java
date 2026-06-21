@@ -45,12 +45,14 @@ public final class FileTypes {
    *   <li>{@link #ADTS}
    *   <li>{@link #AMR}
    *   <li>{@link #FLAC}
+   *   <li>{@link #FLV}
    *   <li>{@link #MATROSKA}
    *   <li>{@link #MP3}
    *   <li>{@link #MP4}
    *   <li>{@link #OGG}
    *   <li>{@link #PS}
    *   <li>{@link #TS}
+   *   <li>{@link #WAV}
    *   <li>{@link #WEBVTT}
    *   <li>{@link #JPEG}
    *   <li>{@link #MIDI}
@@ -59,9 +61,13 @@ public final class FileTypes {
    *   <li>{@link #WEBP}
    *   <li>{@link #BMP}
    *   <li>{@link #HEIF}
-   *   <li>{@link #RM}
    *   <li>{@link #AVIF}
    *   <li>{@link #ASF}
+   *   <li>{@link #RM}
+   *   <li>{@link #ISO}
+   *   <li>{@link #M2TS}
+   *   <li>{@link #DSF}
+   *   <li>{@link #DFF}
    *   <li>{@link #DTS}
    * </ul>
    */
@@ -70,7 +76,7 @@ public final class FileTypes {
   @Target(TYPE_USE)
   @IntDef({
     UNKNOWN, AC3, AC4, ADTS, AMR, FLAC, FLV, MATROSKA, MP3, MP4, OGG, PS, TS, WAV, WEBVTT, JPEG,
-    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, DTS
+    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, ISO, M2TS, DSF, DFF, DTS
   })
   public @interface Type {}
 
@@ -149,6 +155,18 @@ public final class FileTypes {
   /** File type for the ASF format, including WMA and WMV. */
   public static final int ASF = 23;
 
+  /** File type for ISO disc image formats (DVD and Blu-ray). */
+  public static final int ISO = 24;
+
+  /** File type for the M2TS (Blu-ray MPEG-2 Transport Stream) format. */
+  public static final int M2TS = 25;
+
+  /** File type for the DSF (DSD Stream File) format. */
+  public static final int DSF = 26;
+
+  /** File type for the DFF (DSDIFF) format. */
+  public static final int DFF = 27;
+
   /** File type for the raw DTS audio format. */
   public static final int DTS = 28;
 
@@ -199,6 +217,12 @@ public final class FileTypes {
   private static final String EXTENSION_AVIF = ".avif";
   private static final String EXTENSION_RM = ".rm";
   private static final String EXTENSION_RMVB = ".rmvb";
+  private static final String EXTENSION_ISO = ".iso";
+  private static final String EXTENSION_M2TS = ".m2ts";
+  private static final String EXTENSION_MTS = ".mts";
+  private static final String EXTENSION_M2T = ".m2t";
+  private static final String EXTENSION_DSF = ".dsf";
+  private static final String EXTENSION_DFF = ".dff";
   private static final String EXTENSION_DTS = ".dts";
 
   private FileTypes() {}
@@ -281,6 +305,14 @@ public final class FileTypes {
         return FileTypes.AVIF;
       case MimeTypes.APPLICATION_RM:
         return FileTypes.RM;
+      case MimeTypes.VIDEO_ISO:
+        return FileTypes.ISO;
+      case MimeTypes.AUDIO_DSD_LSBF_PLANAR:
+      case MimeTypes.AUDIO_DSD_MSBF_PLANAR:
+        return FileTypes.DSF;
+      case MimeTypes.AUDIO_DSD:
+      case MimeTypes.AUDIO_DST:
+        return FileTypes.DFF;
       case MimeTypes.AUDIO_DTS:
       case MimeTypes.AUDIO_DTS_HD:
       case MimeTypes.AUDIO_DTS_HD_MA:
@@ -345,6 +377,10 @@ public final class FileTypes {
         || filename.endsWith(EXTENSION_MPG)
         || filename.endsWith(EXTENSION_M2P)) {
       return FileTypes.PS;
+    } else if (filename.endsWith(EXTENSION_M2TS)
+        || filename.endsWith(EXTENSION_MTS)
+        || filename.endsWith(EXTENSION_M2T)) {
+      return FileTypes.M2TS;
     } else if (filename.endsWith(EXTENSION_TS)
         || filename.startsWith(
             EXTENSION_PREFIX_TS,
@@ -374,6 +410,12 @@ public final class FileTypes {
         || filename.endsWith(EXTENSION_WMA)
         || filename.endsWith(EXTENSION_WMV)) {
       return FileTypes.ASF;
+    } else if (filename.endsWith(EXTENSION_ISO)) {
+      return FileTypes.ISO;
+    } else if (filename.endsWith(EXTENSION_DSF)) {
+      return FileTypes.DSF;
+    } else if (filename.endsWith(EXTENSION_DFF)) {
+      return FileTypes.DFF;
     } else if (filename.endsWith(EXTENSION_DTS)) {
       return FileTypes.DTS;
     } else {
