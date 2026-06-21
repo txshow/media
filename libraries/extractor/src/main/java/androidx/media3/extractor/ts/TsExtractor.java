@@ -159,6 +159,20 @@ public final class TsExtractor implements Extractor {
   public static final int TS_STREAM_TYPE_DC2_H262 = 0x80;
   public static final int TS_STREAM_TYPE_AIT = 0x101;
 
+  // HDMV (Blu-ray) specific stream types.
+  public static final int TS_STREAM_TYPE_HDMV_LPCM =
+      0x102; // Virtual: 0x80 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_DTS_AUTO =
+      0x103; // Virtual: 0x82 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_DTS_HD_MASTER =
+      0x104; // Virtual: 0x86 remapped when HDMV detected
+  public static final int TS_STREAM_TYPE_HDMV_TRUE_HD = 0x83;
+  public static final int TS_STREAM_TYPE_HDMV_E_AC3 = 0x84;
+  public static final int TS_STREAM_TYPE_HDMV_DTS_HD_HRA = 0x85;
+  public static final int TS_STREAM_TYPE_HDMV_E_AC3_SEC = 0xA1;
+  public static final int TS_STREAM_TYPE_HDMV_DTS_EXPRESS_SEC = 0xA2;
+  public static final int TS_STREAM_TYPE_HDMV_VC1 = 0xEA;
+
   public static final int TS_SYNC_BYTE = 0x47; // First byte of each TS packet.
 
   private static final int TS_PAT_PID = 0;
@@ -174,6 +188,7 @@ public final class TsExtractor implements Extractor {
   private static final long AC4_FORMAT_IDENTIFIER = 0x41432d34;
   private static final long HEVC_FORMAT_IDENTIFIER = 0x48455643;
   private static final long DOVI_FORMAT_IDENTIFIER = 0x444f5649; // "DOVI"
+  private static final long HDMV_FORMAT_IDENTIFIER = 0x48444D56; // "HDMV"
 
   private final @Mode int mode;
   private final @Flags int extractorFlags;
@@ -848,8 +863,25 @@ public final class TsExtractor implements Extractor {
       pmtScratch.skipBits(4);
       int programInfoLength = pmtScratch.readBits(12);
 
-      // Skip the descriptors.
-      sectionData.skipBytes(programInfoLength);
+      // Parse program-level descriptors to detect HDMV registration.
+      boolean isHdmv = false;
+      int programInfoEnd = sectionData.getPosition() + programInfoLength;
+      while (sectionData.getPosition() + 2 <= programInfoEnd) {
+        int descTag = sectionData.readUnsignedByte();
+        int descLen = sectionData.readUnsignedByte();
+        int descEnd = sectionData.getPosition() + descLen;
+        if (descEnd > programInfoEnd) {
+          break;
+        }
+        if (descTag == TS_PMT_DESC_REGISTRATION
+            && descLen >= 4
+            && sectionData.readUnsignedInt() == HDMV_FORMAT_IDENTIFIER) {
+          isHdmv = true;
+          break;
+        }
+        sectionData.setPosition(descEnd);
+      }
+      sectionData.setPosition(programInfoEnd);
 
       if (mode == MODE_HLS && id3Reader == null) {
         // Setup an ID3 track regardless of whether there's a corresponding entry, in case one
@@ -885,6 +917,15 @@ public final class TsExtractor implements Extractor {
             streamType = hlsSampleAesStreamType;
           }
         }
+        if (streamType == TS_STREAM_TYPE_DC2_H262 && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_LPCM;
+        }
+        if (streamType == TS_STREAM_TYPE_SPLICE_INFO && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_DTS_HD_MASTER;
+        }
+        if (streamType == TS_STREAM_TYPE_HDMV_DTS && isHdmv) {
+          streamType = TS_STREAM_TYPE_HDMV_DTS_AUTO;
+        }
         remainingEntriesLength -= esInfoLength + 5;
 
         int trackId = elementaryPid;
@@ -896,7 +937,7 @@ public final class TsExtractor implements Extractor {
         TsPayloadReader reader =
             mode == MODE_HLS && streamType == TS_STREAM_TYPE_ID3
                 ? id3Reader
-                : payloadReaderFactory.createPayloadReader(streamType, esInfo);
+                : payloadReaderFactory.createPayloadReader(streamType, elementaryPid, esInfo);
         if (mode != MODE_HLS
             || elementaryPid < trackIdToPidScratch.get(trackId, MAX_PID_PLUS_ONE)) {
           trackIdToPidScratch.put(trackId, elementaryPid);
