@@ -52,6 +52,7 @@ import androidx.media3.extractor.AacUtil;
 import androidx.media3.extractor.Ac3Util;
 import androidx.media3.extractor.Ac4Util;
 import androidx.media3.extractor.Av1Config;
+import androidx.media3.extractor.Av3aUtil;
 import androidx.media3.extractor.AvcConfig;
 import androidx.media3.extractor.ExtractorUtil;
 import androidx.media3.extractor.GaplessInfoHolder;
@@ -1334,6 +1335,7 @@ public final class BoxParser {
             out,
             i);
       } else if (childAtomType == Mp4Box.TYPE_mp4a
+          || childAtomType == Mp4Box.TYPE_av3a
           || childAtomType == Mp4Box.TYPE_enca
           || childAtomType == Mp4Box.TYPE_ac_3
           || childAtomType == Mp4Box.TYPE_ec_3
@@ -2215,6 +2217,8 @@ public final class BoxParser {
       }
     } else if (atomType == Mp4Box.TYPE__mp2 || atomType == Mp4Box.TYPE__mp3) {
       mimeType = MimeTypes.AUDIO_MPEG;
+    } else if (atomType == Mp4Box.TYPE_av3a) {
+      mimeType = MimeTypes.AUDIO_AV3A;
     } else if (atomType == Mp4Box.TYPE_mha1) {
       mimeType = MimeTypes.AUDIO_MPEGH_MHA1;
     } else if (atomType == Mp4Box.TYPE_mhm1) {
@@ -2319,6 +2323,14 @@ public final class BoxParser {
         parent.setPosition(Mp4Box.HEADER_SIZE + childPosition);
         out.format =
             Ac3Util.parseEAc3AnnexFFormat(parent, Integer.toString(trackId), language, drmInitData);
+      } else if (childAtomType == Mp4Box.TYPE_dca3) {
+        Av3aUtil.Config av3aConfig = Av3aUtil.parseDca3Box(parent, childPosition, childAtomSize);
+        sampleRate = av3aConfig.sampleRate;
+        channelCount = av3aConfig.channelCount;
+        codecs = av3aConfig.codecs;
+        if (av3aConfig.bitrate != Format.NO_VALUE && btrtData == null) {
+          btrtData = new BtrtData(av3aConfig.bitrate, av3aConfig.bitrate);
+        }
       } else if (childAtomType == Mp4Box.TYPE_dac4) {
         parent.setPosition(Mp4Box.HEADER_SIZE + childPosition);
         out.format =

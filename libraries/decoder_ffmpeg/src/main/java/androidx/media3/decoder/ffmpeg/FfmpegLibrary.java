@@ -148,6 +148,8 @@ public final class FfmpegLibrary {
         return "flac";
       case MimeTypes.AUDIO_ALAC:
         return "alac";
+      case MimeTypes.AUDIO_AV3A:
+        return "libarcdav3a";
       case MimeTypes.AUDIO_MLAW:
         return "pcm_mulaw";
       case MimeTypes.AUDIO_ALAW:
