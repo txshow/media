@@ -73,6 +73,7 @@ public final class MimeTypes {
   public static final String VIDEO_RV20 = BASE_TYPE_VIDEO + "/x-rv20";
   public static final String VIDEO_RV30 = BASE_TYPE_VIDEO + "/x-rv30";
   public static final String VIDEO_RV40 = BASE_TYPE_VIDEO + "/x-rv40";
+  public static final String VIDEO_ISO = BASE_TYPE_VIDEO + "/x-iso";
   @UnstableApi public static final String VIDEO_MV_HEVC = BASE_TYPE_VIDEO + "/mv-hevc";
   @UnstableApi public static final String VIDEO_RAW = BASE_TYPE_VIDEO + "/raw";
   @UnstableApi public static final String VIDEO_UNKNOWN = BASE_TYPE_VIDEO + "/x-unknown";
