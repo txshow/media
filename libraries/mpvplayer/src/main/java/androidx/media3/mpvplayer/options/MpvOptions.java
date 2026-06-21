@@ -18,12 +18,14 @@ package androidx.media3.mpvplayer.options;
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.OPT_USER_AGENT;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.OPT_VIDEO_OUTPUT;
+import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_ANDROID_DOLBY_VISION_OUTPUT;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_HWDEC;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.VALUE_NO;
 
 import android.content.Context;
 import android.net.Uri;
 import android.text.TextUtils;
+import android.view.Display;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.media3.common.DolbyVisionOutputPolicy;
@@ -35,43 +37,62 @@ import com.google.common.annotations.VisibleForTesting;
 public final class MpvOptions {
 
   private static final String OPT_AUDIO_SPDIF = "audio-spdif";
-  private static final String OPT_VIDEO_DECODER_OPTIONS = "vd-lavc-o";
-  private static final String OPT_VIDEO_DECODER_OPTIONS_APPEND = "vd-lavc-o-append";
-  private static final String VIDEO_DECODER_OPTION_DOLBY_VISION_SINK_SUPPORT = "dovi_sink_support";
+  private static final String DOLBY_VISION_OUTPUT_CONFIGURED = "configured";
+  private static final String DOLBY_VISION_OUTPUT_DIRECT = "direct";
+  private static final String HARDWARE_DECODER_MEDIACODEC = "mediacodec";
   private static final String VIDEO_OUTPUT_NULL = "null";
 
   private final MpvPlayerConfig config;
   @Nullable private final String supportedPassthroughCodecs;
-  @Nullable private final Boolean dolbyVisionSinkSupported;
+  private final boolean autoDolbyVisionDisplayDetection;
+  @Nullable private Boolean nativeDolbyVisionOutputAllowed;
   private String hardwareDecode;
   @Nullable private String deferredVideoOutput;
   private boolean hardwareDecodeEnabled;
+  private boolean directVideoOutputConfigured;
+  private boolean directOsdOutputConfigured;
 
   public MpvOptions(Context context, MpvPlayerConfig config) {
     this(
         config,
         MpvAudioCapabilities.getSupportedPassthroughCodecs(
             context, config.getRequestedPassthroughCodecs()),
-        resolveDolbyVisionSinkSupport(context, config));
+        resolveNativeDolbyVisionOutputAllowed(context, config),
+        config.isDolbyVisionOutputPolicySet()
+            && config.getDolbyVisionOutputPolicy() == DolbyVisionOutputPolicy.AUTO);
   }
 
   @VisibleForTesting
   MpvOptions(MpvPlayerConfig config, @Nullable String supportedPassthroughCodecs) {
-    this(config, supportedPassthroughCodecs, /* dolbyVisionSinkSupported= */ null);
+    this(config, supportedPassthroughCodecs, /* nativeDolbyVisionOutputAllowed= */ null);
   }
 
   @VisibleForTesting
   MpvOptions(
       MpvPlayerConfig config,
       @Nullable String supportedPassthroughCodecs,
-      @Nullable Boolean dolbyVisionSinkSupported) {
+      @Nullable Boolean nativeDolbyVisionOutputAllowed) {
+    this(
+        config,
+        supportedPassthroughCodecs,
+        nativeDolbyVisionOutputAllowed,
+        /* autoDolbyVisionDisplayDetection= */ false);
+  }
+
+  @VisibleForTesting
+  MpvOptions(
+      MpvPlayerConfig config,
+      @Nullable String supportedPassthroughCodecs,
+      @Nullable Boolean nativeDolbyVisionOutputAllowed,
+      boolean autoDolbyVisionDisplayDetection) {
     this.config = config;
     this.supportedPassthroughCodecs = supportedPassthroughCodecs;
-    this.dolbyVisionSinkSupported = dolbyVisionSinkSupported;
+    this.nativeDolbyVisionOutputAllowed = nativeDolbyVisionOutputAllowed;
+    this.autoDolbyVisionDisplayDetection = autoDolbyVisionDisplayDetection;
     this.hardwareDecode = config.getDefaultHardwareDecode();
   }
 
-  private static @Nullable Boolean resolveDolbyVisionSinkSupport(
+  private static @Nullable Boolean resolveNativeDolbyVisionOutputAllowed(
       Context context, MpvPlayerConfig config) {
     return !config.isDolbyVisionOutputPolicySet()
         ? null
@@ -88,6 +109,31 @@ public final class MpvOptions {
       return VALUE_NO;
     }
     return TextUtils.isEmpty(hardwareDecode) ? null : hardwareDecode;
+  }
+
+  private boolean shouldUseDirectDolbyVisionOutput() {
+    @Nullable String hardwareDecode = getHardwareDecodeValue();
+    if (!Boolean.TRUE.equals(nativeDolbyVisionOutputAllowed)
+        || hardwareDecode == null
+        || !directVideoOutputConfigured
+        || !directOsdOutputConfigured) {
+      return false;
+    }
+    for (String decoder : hardwareDecode.split(",")) {
+      if (HARDWARE_DECODER_MEDIACODEC.equals(decoder)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private @Nullable String getDolbyVisionOutputMode() {
+    if (nativeDolbyVisionOutputAllowed == null) {
+      return null;
+    }
+    return shouldUseDirectDolbyVisionOutput()
+        ? DOLBY_VISION_OUTPUT_DIRECT
+        : DOLBY_VISION_OUTPUT_CONFIGURED;
   }
 
   public void applyPreInit(StringOptionWriter strings) {
@@ -146,6 +192,40 @@ public final class MpvOptions {
     return getHardwareDecodeValue();
   }
 
+  public boolean setDirectVideoOutputConfigured(boolean directVideoOutputConfigured) {
+    if (this.directVideoOutputConfigured == directVideoOutputConfigured) {
+      return false;
+    }
+    @Nullable String previousOutputMode = getDolbyVisionOutputMode();
+    this.directVideoOutputConfigured = directVideoOutputConfigured;
+    return !TextUtils.equals(previousOutputMode, getDolbyVisionOutputMode());
+  }
+
+  public boolean setDirectVideoDisplay(@Nullable Display display) {
+    if (!autoDolbyVisionDisplayDetection || display == null) {
+      return false;
+    }
+    boolean nativeDolbyVisionOutputAllowed =
+        DolbyVisionOutputPolicy.isNativeOutputAllowedOnDisplay(
+            display, DolbyVisionOutputPolicy.AUTO);
+    if (this.nativeDolbyVisionOutputAllowed != null
+        && this.nativeDolbyVisionOutputAllowed == nativeDolbyVisionOutputAllowed) {
+      return false;
+    }
+    @Nullable String previousOutputMode = getDolbyVisionOutputMode();
+    this.nativeDolbyVisionOutputAllowed = nativeDolbyVisionOutputAllowed;
+    return !TextUtils.equals(previousOutputMode, getDolbyVisionOutputMode());
+  }
+
+  public boolean setDirectOsdOutputConfigured(boolean directOsdOutputConfigured) {
+    if (this.directOsdOutputConfigured == directOsdOutputConfigured) {
+      return false;
+    }
+    @Nullable String previousOutputMode = getDolbyVisionOutputMode();
+    this.directOsdOutputConfigured = directOsdOutputConfigured;
+    return !TextUtils.equals(previousOutputMode, getDolbyVisionOutputMode());
+  }
+
   public void onNativeSessionEnded() {
     hardwareDecode = config.getDefaultHardwareDecode();
     deferredVideoOutput = null;
@@ -162,21 +242,16 @@ public final class MpvOptions {
     if (hardwareDecode != null) {
       options.add(PROP_HWDEC, hardwareDecode);
     }
-    if (hardwareDecodeEnabled && dolbyVisionSinkSupported != null) {
-      options.add(
-          OPT_VIDEO_DECODER_OPTIONS_APPEND,
-          VIDEO_DECODER_OPTION_DOLBY_VISION_SINK_SUPPORT
-              + "="
-              + (dolbyVisionSinkSupported ? "1" : "0"));
+    @Nullable String dolbyVisionOutputMode = getDolbyVisionOutputMode();
+    if (dolbyVisionOutputMode != null) {
+      options.add(PROP_ANDROID_DOLBY_VISION_OUTPUT, dolbyVisionOutputMode);
     }
   }
 
-  public void applyRuntimeDolbyVisionSinkSupport(KeyValueOptionWriter writer) {
-    if (dolbyVisionSinkSupported != null) {
-      writer.set(
-          OPT_VIDEO_DECODER_OPTIONS,
-          VIDEO_DECODER_OPTION_DOLBY_VISION_SINK_SUPPORT,
-          hardwareDecodeEnabled ? (dolbyVisionSinkSupported ? "1" : "0") : null);
+  public void applyRuntimeDolbyVisionOutputMode(StringOptionWriter writer) {
+    @Nullable String dolbyVisionOutputMode = getDolbyVisionOutputMode();
+    if (dolbyVisionOutputMode != null) {
+      writer.set(PROP_ANDROID_DOLBY_VISION_OUTPUT, dolbyVisionOutputMode);
     }
   }
 
@@ -194,10 +269,5 @@ public final class MpvOptions {
   public interface DoubleOptionWriter {
 
     void set(String name, double value);
-  }
-
-  public interface KeyValueOptionWriter {
-
-    void set(String name, String key, @Nullable String value);
   }
 }

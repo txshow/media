@@ -20,6 +20,7 @@ import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_AUDIO_DEL
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_AUDIO_OUTPUT_FORMAT;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_BRIGHTNESS;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_CONTRAST;
+import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_CURRENT_VIDEO_OUTPUT;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_GAMMA;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_HUE;
 import static androidx.media3.mpvplayer.nativebridge.MpvConstants.PROP_HWDEC;
@@ -117,9 +118,8 @@ public final class MpvPlaybackProperties {
     return properties.getString(PROP_AUDIO_OUTPUT_FORMAT);
   }
 
-  public boolean isAudioPassthroughActive() {
-    @Nullable String format = getAudioOutputFormat();
-    return format != null && format.startsWith("spdif-");
+  public @Nullable String getCurrentVideoOutput() {
+    return properties.getString(PROP_CURRENT_VIDEO_OUTPUT);
   }
 
   public boolean hasActiveFile(boolean fallbackHasActiveFile) {
@@ -162,5 +162,9 @@ public final class MpvPlaybackProperties {
     if (hardwareDecode != null && !hardwareDecode.isEmpty()) {
       properties.setStringOptionOrProperty(PROP_HWDEC, hardwareDecode);
     }
+  }
+
+  public void setStringOptionOrProperty(String name, String value) {
+    properties.setStringOptionOrProperty(name, value);
   }
 }

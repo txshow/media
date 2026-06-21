@@ -21,7 +21,8 @@ public final class MpvConstants {
   public static final String VALUE_YES = "yes";
   public static final String VALUE_AUTO = "auto";
   public static final String VALUE_EMPTY = "";
-  public static final String PROP_ANDROID_DISPLAY_PEAK = "android-display-peak";
+  public static final String PROP_ANDROID_DOLBY_VISION_OUTPUT = "android-dolby-vision-output";
+  public static final String PROP_ANDROID_OSD_SURFACE_SIZE = "android-osd-surface-size";
   public static final String PROP_ANDROID_SURFACE_SIZE = "android-surface-size";
   public static final String PROP_CHAPTER = "chapter";
   public static final String PROP_CHAPTER_LIST = "chapter-list";
@@ -63,6 +64,7 @@ public final class MpvConstants {
   static final String PROP_AUDIO_OUTPUT_FORMAT = "audio-out-params/format";
   static final String PROP_BRIGHTNESS = "brightness";
   static final String PROP_CONTRAST = "contrast";
+  static final String PROP_CURRENT_VIDEO_OUTPUT = "current-vo";
   static final String PROP_DEMUXER_CACHE_DURATION = "demuxer-cache-duration";
   static final String PROP_DEMUXER_CACHE_TIME = "demuxer-cache-time";
   static final String PROP_GAMMA = "gamma";

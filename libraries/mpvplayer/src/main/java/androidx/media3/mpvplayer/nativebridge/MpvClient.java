@@ -54,7 +54,7 @@ public final class MpvClient implements MPVLib.LogObserver, MpvNativeClient {
   }
 
   public boolean destroy() {
-    return run("destroy", MPVLib::destroy);
+    return runResult("destroy", MPVLib::destroy);
   }
 
   public boolean attachSurface(Surface surface) {
@@ -67,6 +67,18 @@ public final class MpvClient implements MPVLib.LogObserver, MpvNativeClient {
 
   public boolean detachSurface() {
     return run("detachSurface", MPVLib::detachSurface);
+  }
+
+  public boolean attachOsdSurface(Surface surface) {
+    return run("attachOsdSurface", () -> MPVLib.attachOsdSurface(surface));
+  }
+
+  public boolean replaceOsdSurface(Surface surface) {
+    return run("replaceOsdSurface", () -> MPVLib.replaceOsdSurface(surface));
+  }
+
+  public boolean detachOsdSurface() {
+    return run("detachOsdSurface", MPVLib::detachOsdSurface);
   }
 
   public boolean command(String[] command) {
@@ -107,8 +119,8 @@ public final class MpvClient implements MPVLib.LogObserver, MpvNativeClient {
     return setProperty(property, Double.toString(value), callback);
   }
 
-  public boolean setPropertyDouble(String property, double value) {
-    return setPropertyDouble(property, value, /* callback= */ null);
+  public void setPropertyDouble(String property, double value) {
+    setPropertyDouble(property, value, /* callback= */ null);
   }
 
   public void setPropertyString(String property, String value) {

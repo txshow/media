@@ -19,6 +19,12 @@
   void onImageAvailable(long, android.graphics.Bitmap);
 }
 
+-dontnote androidx.media3.mpvplayer.MpvPlayer
+-keepclassmembers class androidx.media3.mpvplayer.MpvPlayer {
+  void setOsdSurfaceView(android.view.SurfaceView);
+  void clearOsdSurfaceView(android.view.SurfaceView);
+}
+
 -keepnames class androidx.media3.transformer.CompositionPlayer {}
 -keepclassmembers class androidx.media3.transformer.CompositionPlayer {
   void setScrubbingModeEnabled(boolean);

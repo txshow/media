@@ -140,7 +140,12 @@ public final class MpvAndroidOptions {
 
     /**
      * Sets the policy used to decide whether native Dolby Vision output may be sent to the current
-     * display.
+     * display. When native output is allowed, direct MediaCodec hardware decoding and both
+     * SurfaceView-backed video and subtitle outputs must be available. Dolby Vision tracks then
+     * render directly from MediaCodec to the video surface. Subtitles and mpv OSD remain
+     * mpv-rendered on the separate overlay surface, while video effects, screenshots, and GPU tone
+     * mapping are unavailable for those tracks. Dolby Vision tracks that cannot use direct output
+     * fall back to the configured video output. Other video tracks continue to use that output.
      */
     @CanIgnoreReturnValue
     public Builder setDolbyVisionOutputPolicy(

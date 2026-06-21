@@ -17,10 +17,14 @@ package androidx.media3.mpvplayer;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Display;
+import android.view.SurfaceView;
+import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
@@ -65,10 +69,55 @@ import androidx.media3.mpvplayer.video.MpvVideoTrackEnableGate;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import java.lang.annotation.Documented;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 import java.util.List;
 
 public final class MpvPlayer extends SimpleBasePlayer {
 
+  /** No audio output is currently initialized. */
+  public static final int AUDIO_EFFECTS_UNAVAILABLE = 0;
+
+  /** Audio effects are supported. */
+  public static final int AUDIO_EFFECTS_SUPPORTED = 1;
+
+  /** The audio output is using encoded passthrough. */
+  public static final int AUDIO_EFFECTS_UNSUPPORTED_PASSTHROUGH = 2;
+
+  /** Support for applying audio effects to the currently initialized audio output. */
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    AUDIO_EFFECTS_UNAVAILABLE,
+    AUDIO_EFFECTS_SUPPORTED,
+    AUDIO_EFFECTS_UNSUPPORTED_PASSTHROUGH
+  })
+  public @interface AudioEffectsSupport {}
+
+  /** No video track is currently selected. */
+  public static final int VIDEO_EFFECTS_UNAVAILABLE = 0;
+
+  /** Video effects are supported. */
+  public static final int VIDEO_EFFECTS_SUPPORTED = 1;
+
+  /** Direct Dolby Vision output bypasses video effects. */
+  public static final int VIDEO_EFFECTS_UNSUPPORTED_DIRECT_DOLBY_VISION_OUTPUT = 2;
+
+  /** Support for applying video effects to the currently selected video track. */
+  @Documented
+  @Retention(RetentionPolicy.SOURCE)
+  @Target(TYPE_USE)
+  @IntDef({
+    VIDEO_EFFECTS_UNAVAILABLE,
+    VIDEO_EFFECTS_SUPPORTED,
+    VIDEO_EFFECTS_UNSUPPORTED_DIRECT_DOLBY_VISION_OUTPUT
+  })
+  public @interface VideoEffectsSupport {}
+
+  private static final String VIDEO_OUTPUT_MEDIACODEC_EMBED = "mediacodec_embed";
   private static final ListenableFuture<?> COMPLETED = Futures.immediateVoidFuture();
   private final Context applicationContext;
   private final MpvPlaylist playlist;
@@ -196,12 +245,18 @@ public final class MpvPlayer extends SimpleBasePlayer {
     if (!nativeLifecycle.isInitialized()) {
       return;
     }
+    boolean hardwareDecodeEnabled = isHardwareDecodeEnabled();
     @Nullable
     String hardwareDecode =
         options.setHardwareDecodeEnabled(
-            isHardwareDecodeEnabled(), playbackProperties.getHardwareDecode());
-    options.applyRuntimeDolbyVisionSinkSupport(commandDispatcher::setKeyValueOption);
+            hardwareDecodeEnabled, playbackProperties.getHardwareDecode());
+    if (!hardwareDecodeEnabled) {
+      applyRuntimeDolbyVisionOutputMode();
+    }
     playbackProperties.setHardwareDecode(hardwareDecode);
+    if (hardwareDecodeEnabled) {
+      applyRuntimeDolbyVisionOutputMode();
+    }
   }
 
   public void setSubtitleOptions(MpvSubtitleOptions subtitleOptions) {
@@ -212,15 +267,44 @@ public final class MpvPlayer extends SimpleBasePlayer {
     runOnPlayerLooper(() -> subtitleController.setOptions(config));
   }
 
+  public void setOsdSurfaceView(SurfaceView surfaceView) {
+    runOnPlayerLooper(() -> surfaceController.setOsdOutput(checkNotNull(surfaceView)));
+  }
+
+  public void clearOsdSurfaceView(@Nullable SurfaceView surfaceView) {
+    runOnPlayerLooper(() -> surfaceController.clearOsdOutput(surfaceView));
+  }
+
   public void setVideoEqualizer(MpvVideoEqualizer videoEqualizer) {
+    MpvVideoEqualizer requestedVideoEqualizer = checkNotNull(videoEqualizer);
+    @VideoEffectsSupport int support = getVideoEffectsSupport();
     MpvVideoEqualizer checkedVideoEqualizer =
-        sanitizeVideoEqualizer(checkNotNull(videoEqualizer), options.isVideoSharpnessSupported());
+        support == VIDEO_EFFECTS_UNSUPPORTED_DIRECT_DOLBY_VISION_OUTPUT
+            ? MpvVideoEqualizer.DEFAULT
+            : sanitizeVideoEqualizer(requestedVideoEqualizer, options.isVideoSharpnessSupported());
     runOnPlayerLooper(() -> effectController.setVideoEqualizer(checkedVideoEqualizer));
+  }
+
+  /** Returns video effect support for the currently selected output and video track. */
+  public @VideoEffectsSupport int getVideoEffectsSupport() {
+    verifyApplicationThread();
+    return playerInfo.isReleased()
+        ? VIDEO_EFFECTS_UNAVAILABLE
+        : getVideoEffectsSupport(playbackProperties.getCurrentVideoOutput());
   }
 
   public boolean isVideoSharpnessSupported() {
     verifyApplicationThread();
     return options.isVideoSharpnessSupported();
+  }
+
+  static @VideoEffectsSupport int getVideoEffectsSupport(@Nullable String currentVideoOutput) {
+    if (currentVideoOutput == null || currentVideoOutput.isEmpty()) {
+      return VIDEO_EFFECTS_UNAVAILABLE;
+    }
+    return VIDEO_OUTPUT_MEDIACODEC_EMBED.equals(currentVideoOutput)
+        ? VIDEO_EFFECTS_UNSUPPORTED_DIRECT_DOLBY_VISION_OUTPUT
+        : VIDEO_EFFECTS_SUPPORTED;
   }
 
   static MpvVideoEqualizer sanitizeVideoEqualizer(
@@ -262,9 +346,21 @@ public final class MpvPlayer extends SimpleBasePlayer {
     return channelCount != null && channelCount > 0 ? channelCount : Format.NO_VALUE;
   }
 
-  public boolean isAudioPassthroughActive() {
+  /** Returns audio effect support for the currently initialized audio output. */
+  public @AudioEffectsSupport int getAudioEffectsSupport() {
     verifyApplicationThread();
-    return !playerInfo.isReleased() && playbackProperties.isAudioPassthroughActive();
+    return playerInfo.isReleased()
+        ? AUDIO_EFFECTS_UNAVAILABLE
+        : getAudioEffectsSupport(playbackProperties.getAudioOutputFormat());
+  }
+
+  static @AudioEffectsSupport int getAudioEffectsSupport(@Nullable String audioOutputFormat) {
+    if (audioOutputFormat == null || audioOutputFormat.isEmpty()) {
+      return AUDIO_EFFECTS_UNAVAILABLE;
+    }
+    return audioOutputFormat.startsWith("spdif-")
+        ? AUDIO_EFFECTS_UNSUPPORTED_PASSTHROUGH
+        : AUDIO_EFFECTS_SUPPORTED;
   }
 
   @CanIgnoreReturnValue
@@ -637,6 +733,30 @@ public final class MpvPlayer extends SimpleBasePlayer {
           invalidatePlayerState();
           return COMPLETED;
         });
+  }
+
+  void setDirectVideoOutputConfigured(boolean configured) {
+    if (options.setDirectVideoOutputConfigured(configured)) {
+      applyRuntimeDolbyVisionOutputMode();
+    }
+  }
+
+  void setDirectVideoDisplay(@Nullable Display display) {
+    if (options.setDirectVideoDisplay(display)) {
+      applyRuntimeDolbyVisionOutputMode();
+    }
+  }
+
+  void setDirectOsdOutputConfigured(boolean configured) {
+    if (options.setDirectOsdOutputConfigured(configured)) {
+      applyRuntimeDolbyVisionOutputMode();
+    }
+  }
+
+  private void applyRuntimeDolbyVisionOutputMode() {
+    if (nativeLifecycle.isInitialized()) {
+      options.applyRuntimeDolbyVisionOutputMode(playbackProperties::setStringOptionOrProperty);
+    }
   }
 
   private ListenableFuture<?> handlePlayerCommand(PlayerCommand command) {

@@ -17,13 +17,11 @@ package androidx.media3.mpvplayer.video;
 
 import static androidx.annotation.RestrictTo.Scope.LIBRARY_GROUP;
 
-import android.os.Build;
 import android.view.Display;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
-import android.view.View;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.media3.common.util.Size;
@@ -34,13 +32,18 @@ public final class MpvSurfaceController {
 
   private final MpvNativeSurface nativeSurface;
   private final MpvSurfaceTarget surfaceTarget;
+  private final MpvNativeOsdSurface nativeOsdSurface;
+  private final MpvSurfaceTarget osdSurfaceTarget;
   private final Host host;
 
   @Nullable private Object videoOutput;
+  @Nullable private SurfaceView osdOutput;
 
   public MpvSurfaceController(MpvClient client, Host host) {
     this.nativeSurface = new MpvNativeSurface(client, host);
     this.surfaceTarget = new MpvSurfaceTarget(new TargetHost());
+    this.nativeOsdSurface = new MpvNativeOsdSurface(client, host);
+    this.osdSurfaceTarget = new MpvSurfaceTarget(new OsdTargetHost());
     this.host = host;
   }
 
@@ -55,13 +58,14 @@ public final class MpvSurfaceController {
 
   public void setVideoOutput(Object videoOutput) {
     this.videoOutput = videoOutput;
+    host.setDirectVideoOutputConfigured(videoOutput instanceof SurfaceView);
+    updateDirectVideoDisplay();
     if (host.isInitialized()) {
       applyVideoOutput(videoOutput);
     }
   }
 
   private void applyVideoOutput(Object videoOutput) {
-    updateDisplayPeakLuminance(videoOutput instanceof View ? (View) videoOutput : null);
     if (videoOutput instanceof SurfaceView) {
       surfaceTarget.setSurfaceView((SurfaceView) videoOutput);
     } else if (videoOutput instanceof TextureView) {
@@ -75,47 +79,50 @@ public final class MpvSurfaceController {
     }
   }
 
-  @SuppressWarnings("deprecation")
-  private void updateDisplayPeakLuminance(@Nullable View view) {
-    double displayPeakLuminance = 0;
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && view != null) {
-      Display display = view.getDisplay();
-      if (display != null) {
-        Display.HdrCapabilities capabilities = display.getHdrCapabilities();
-        if (capabilities != null
-            && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? display.isHdr()
-                : capabilities.getSupportedHdrTypes().length > 0)) {
-          float desiredMaxLuminance = capabilities.getDesiredMaxLuminance();
-          if (!Float.isNaN(desiredMaxLuminance)
-              && !Float.isInfinite(desiredMaxLuminance)
-              && desiredMaxLuminance > 0) {
-            displayPeakLuminance = desiredMaxLuminance;
-          }
-        }
-      }
-    }
-    nativeSurface.setDisplayPeakLuminance(displayPeakLuminance);
-  }
-
-  public void clearVideoOutput(@Nullable Object videoOutput) {
+  public boolean clearVideoOutput(@Nullable Object videoOutput) {
     if (videoOutput != null && videoOutput != this.videoOutput) {
-      return;
+      return false;
     }
-    updateDisplayPeakLuminance(null);
+    host.setDirectVideoOutputConfigured(false);
     surfaceTarget.clear();
     this.videoOutput = null;
+    return true;
+  }
+
+  public void setOsdOutput(SurfaceView osdOutput) {
+    this.osdOutput = osdOutput;
+    host.setDirectOsdOutputConfigured(true);
+    if (host.isInitialized()) {
+      osdSurfaceTarget.setSurfaceView(osdOutput);
+    }
+  }
+
+  public void clearOsdOutput(@Nullable SurfaceView osdOutput) {
+    if (osdOutput != null && osdOutput != this.osdOutput) {
+      return;
+    }
+    host.setDirectOsdOutputConfigured(false);
+    osdSurfaceTarget.clear();
+    this.osdOutput = null;
   }
 
   public void onInitialized() {
     if (videoOutput != null) {
       setVideoOutput(videoOutput);
     }
+    if (osdOutput != null) {
+      host.setDirectOsdOutputConfigured(true);
+      osdSurfaceTarget.setSurfaceView(osdOutput);
+    }
   }
 
   @RestrictTo(LIBRARY_GROUP)
   public void onNativeSessionEnded() {
+    host.setDirectVideoOutputConfigured(false);
+    host.setDirectOsdOutputConfigured(false);
     nativeSurface.onNativeSessionEnded();
+    nativeOsdSurface.onNativeSessionEnded();
+    osdSurfaceTarget.onNativeSessionEnded();
     surfaceTarget.onNativeSessionEnded();
   }
 
@@ -124,6 +131,7 @@ public final class MpvSurfaceController {
       onNativeSessionEnded();
       return;
     }
+    osdSurfaceTarget.prepareForRelease();
     surfaceTarget.prepareForRelease();
   }
 
@@ -144,6 +152,13 @@ public final class MpvSurfaceController {
     }
   }
 
+  private void updateDirectVideoDisplay() {
+    @Nullable
+    Display display =
+        videoOutput instanceof SurfaceView ? ((SurfaceView) videoOutput).getDisplay() : null;
+    host.setDirectVideoDisplay(display);
+  }
+
   public interface Host {
 
     void runOnPlayerLooper(Runnable runnable);
@@ -153,6 +168,12 @@ public final class MpvSurfaceController {
     boolean isInitialized();
 
     void resetRenderedFirstFrame();
+
+    void setDirectVideoDisplay(@Nullable Display display);
+
+    void setDirectVideoOutputConfigured(boolean configured);
+
+    void setDirectOsdOutputConfigured(boolean configured);
 
     void invalidateState();
   }
@@ -171,13 +192,37 @@ public final class MpvSurfaceController {
 
     @Override
     public boolean onSurfaceChanged(@Nullable Surface surface) {
-      updateDisplayPeakLuminance(videoOutput instanceof View ? (View) videoOutput : null);
+      updateDirectVideoDisplay();
       return setSurfaceInternal(surface);
     }
 
     @Override
     public void onSurfaceSizeChanged(Size size) {
+      updateDirectVideoDisplay();
       updateSurfaceSize(size);
+    }
+  }
+
+  private final class OsdTargetHost implements MpvSurfaceTarget.Host {
+
+    @Override
+    public void runOnPlayerLooper(Runnable runnable) {
+      host.runOnPlayerLooper(runnable);
+    }
+
+    @Override
+    public void runOnPlayerLooperAndWait(Runnable runnable) {
+      host.runOnPlayerLooperAndWait(runnable);
+    }
+
+    @Override
+    public boolean onSurfaceChanged(@Nullable Surface surface) {
+      return nativeOsdSurface.setSurface(surface);
+    }
+
+    @Override
+    public void onSurfaceSizeChanged(Size size) {
+      nativeOsdSurface.setSurfaceSize(size);
     }
   }
 }

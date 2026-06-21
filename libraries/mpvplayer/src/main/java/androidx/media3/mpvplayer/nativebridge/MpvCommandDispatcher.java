@@ -31,7 +31,6 @@ import static androidx.media3.mpvplayer.nativebridge.MpvConstants.VALUE_REPLACE;
 
 import android.net.Uri;
 import android.text.TextUtils;
-import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.util.Util;
@@ -42,9 +41,6 @@ import java.util.List;
 public final class MpvCommandDispatcher {
 
   private static final String COMMAND_PREFIX_ASYNC = "async";
-  private static final String COMMAND_CHANGE_LIST = "change-list";
-  private static final String LIST_OPERATION_APPEND = "append";
-  private static final String LIST_OPERATION_REMOVE = "remove";
   private static final String LOAD_FILE_DEFAULT_INDEX = "-1";
 
   private final MpvClient client;
@@ -100,12 +96,6 @@ public final class MpvCommandDispatcher {
 
   public boolean seekTo(long positionMs, MpvClient.ResultCallback callback) {
     return client.setPropertyDouble(PROP_TIME_POS, positionMs / 1000.0, callback);
-  }
-
-  public void setKeyValueOption(String name, String key, @Nullable String value) {
-    String operation = value == null ? LIST_OPERATION_REMOVE : LIST_OPERATION_APPEND;
-    String argument = value == null ? key : key + "=" + value;
-    client.command(new String[] {COMMAND_CHANGE_LIST, name, operation, argument});
   }
 
   public boolean addAudioFilter(String audioFilter) {
