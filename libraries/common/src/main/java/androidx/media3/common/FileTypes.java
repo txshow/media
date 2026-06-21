@@ -59,6 +59,7 @@ public final class FileTypes {
    *   <li>{@link #BMP}
    *   <li>{@link #HEIF}
    *   <li>{@link #AVIF}
+   *   <li>{@link #DTS}
    * </ul>
    */
   @Documented
@@ -66,7 +67,7 @@ public final class FileTypes {
   @Target(TYPE_USE)
   @IntDef({
     UNKNOWN, AC3, AC4, ADTS, AMR, FLAC, FLV, MATROSKA, MP3, MP4, OGG, PS, TS, WAV, WEBVTT, JPEG,
-    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF
+    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, DTS
   })
   public @interface Type {}
 
@@ -139,6 +140,9 @@ public final class FileTypes {
   /** File type for the AVIF format. */
   public static final int AVIF = 21;
 
+  /** File type for the raw DTS audio format. */
+  public static final int DTS = 28;
+
   @VisibleForTesting /* package */ static final String HEADER_CONTENT_TYPE = "Content-Type";
 
   private static final String EXTENSION_AC3 = ".ac3";
@@ -181,6 +185,7 @@ public final class FileTypes {
   private static final String EXTENSION_HEIC = ".heic";
   private static final String EXTENSION_HEIF = ".heif";
   private static final String EXTENSION_AVIF = ".avif";
+  private static final String EXTENSION_DTS = ".dts";
 
   private FileTypes() {}
 
@@ -257,6 +262,13 @@ public final class FileTypes {
         return FileTypes.HEIF;
       case MimeTypes.IMAGE_AVIF:
         return FileTypes.AVIF;
+      case MimeTypes.AUDIO_DTS:
+      case MimeTypes.AUDIO_DTS_HD:
+      case MimeTypes.AUDIO_DTS_HD_MA:
+      case MimeTypes.AUDIO_MEDIA3_DTS_HD_MA_CORELESS:
+      case MimeTypes.AUDIO_DTS_EXPRESS:
+      case MimeTypes.AUDIO_DTS_UHD_P2:
+        return FileTypes.DTS;
       default:
         return FileTypes.UNKNOWN;
     }
@@ -334,6 +346,8 @@ public final class FileTypes {
       return FileTypes.HEIF;
     } else if (filename.endsWith(EXTENSION_AVIF)) {
       return FileTypes.AVIF;
+    } else if (filename.endsWith(EXTENSION_DTS)) {
+      return FileTypes.DTS;
     } else {
       return FileTypes.UNKNOWN;
     }

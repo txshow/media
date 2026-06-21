@@ -1032,5 +1032,27 @@ public final class DtsUtil {
         || frameHeader[0] == FIRST_BYTE_UHD_FTOC_NONSYNC_LE;
   }
 
+  public static int readSyncWord(byte[] data) {
+    return ((data[0] & 0xFF) << 24)
+        | ((data[1] & 0xFF) << 16)
+        | ((data[2] & 0xFF) << 8)
+        | (data[3] & 0xFF);
+  }
+
+  public static int parseDtsHdFrameSize(byte[] header) {
+    ParsableBitArray bits = getNormalizedFrame(header);
+    bits.skipBits(32 + 8 + 2);
+    boolean longHeader = bits.readBit();
+    bits.skipBits(longHeader ? 12 : 8);
+    return bits.readBits(longHeader ? 20 : 16) + 1;
+  }
+
+  public static boolean isRiffContainer(ExtractorInput input) throws IOException {
+    byte[] header = new byte[4];
+    input.peekFully(header, 0, 4);
+    input.resetPeekPosition();
+    return header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46;
+  }
+
   private DtsUtil() {}
 }
