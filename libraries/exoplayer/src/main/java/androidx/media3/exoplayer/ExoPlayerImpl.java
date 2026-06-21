@@ -152,7 +152,8 @@ import java.util.function.IntConsumer;
 
 /** The default implementation of {@link ExoPlayer}. */
 @SuppressWarnings("nullness") // TODO: b/78934030 - Add missing nullness checks to this class.
-/* package */ final class ExoPlayerImpl extends BasePlayer implements ExoPlayer {
+/* package */ final class ExoPlayerImpl extends BasePlayer
+    implements ExoPlayer, ExoPlayerDebugInfo {
 
   static {
     MediaLibraryInfo.registerModule("media3.exoplayer");
@@ -227,6 +228,9 @@ import java.util.function.IntConsumer;
   private ImmutableList<MediaEdition> currentMediaEditions = ImmutableList.of();
   @Nullable private Format videoFormat;
   @Nullable private Format audioFormat;
+  @Nullable private String videoDecoderName;
+  @Nullable private String audioDecoderName;
+  private int initializedAudioTrackCount;
   @Nullable private Object videoOutput;
   @Nullable private Surface ownedSurface;
   @Nullable private SurfaceHolder surfaceHolder;
@@ -1970,6 +1974,33 @@ import java.util.function.IntConsumer;
   public Format getAudioFormat() {
     verifyApplicationThread();
     return audioFormat;
+  }
+
+  @Override
+  @Nullable
+  public String getVideoDecoderName() {
+    verifyApplicationThread();
+    return videoDecoderName;
+  }
+
+  @Override
+  @Nullable
+  public String getAudioDecoderName() {
+    verifyApplicationThread();
+    return audioDecoderName;
+  }
+
+  @Override
+  public boolean isAudioTrackInitialized() {
+    verifyApplicationThread();
+    return initializedAudioTrackCount > 0;
+  }
+
+  @Override
+  @Nullable
+  public Object getVideoOutput() {
+    verifyApplicationThread();
+    return videoOutput;
   }
 
   @Override
@@ -3791,6 +3822,7 @@ import java.util.function.IntConsumer;
     @Override
     public void onVideoDecoderInitialized(
         String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+      videoDecoderName = decoderName;
       analyticsCollector.onVideoDecoderInitialized(
           decoderName, initializedTimestampMs, initializationDurationMs);
     }
@@ -3825,6 +3857,9 @@ import java.util.function.IntConsumer;
 
     @Override
     public void onVideoDecoderReleased(String decoderName) {
+      if (decoderName.equals(videoDecoderName)) {
+        videoDecoderName = null;
+      }
       analyticsCollector.onVideoDecoderReleased(decoderName);
     }
 
@@ -3832,6 +3867,7 @@ import java.util.function.IntConsumer;
     public void onVideoDisabled(DecoderCounters counters) {
       analyticsCollector.onVideoDisabled(counters);
       videoFormat = null;
+      videoDecoderName = null;
       videoDecoderCounters = null;
     }
 
@@ -3856,6 +3892,7 @@ import java.util.function.IntConsumer;
     @Override
     public void onAudioDecoderInitialized(
         String decoderName, long initializedTimestampMs, long initializationDurationMs) {
+      audioDecoderName = decoderName;
       analyticsCollector.onAudioDecoderInitialized(
           decoderName, initializedTimestampMs, initializationDurationMs);
     }
@@ -3879,6 +3916,9 @@ import java.util.function.IntConsumer;
 
     @Override
     public void onAudioDecoderReleased(String decoderName) {
+      if (decoderName.equals(audioDecoderName)) {
+        audioDecoderName = null;
+      }
       analyticsCollector.onAudioDecoderReleased(decoderName);
     }
 
@@ -3886,6 +3926,7 @@ import java.util.function.IntConsumer;
     public void onAudioDisabled(DecoderCounters counters) {
       analyticsCollector.onAudioDisabled(counters);
       audioFormat = null;
+      audioDecoderName = null;
       audioDecoderCounters = null;
     }
 
@@ -3912,11 +3953,13 @@ import java.util.function.IntConsumer;
 
     @Override
     public void onAudioTrackInitialized(AudioSink.AudioTrackConfig audioTrackConfig) {
+      initializedAudioTrackCount++;
       analyticsCollector.onAudioTrackInitialized(audioTrackConfig);
     }
 
     @Override
     public void onAudioTrackReleased(AudioSink.AudioTrackConfig audioTrackConfig) {
+      initializedAudioTrackCount = max(0, initializedAudioTrackCount - 1);
       analyticsCollector.onAudioTrackReleased(audioTrackConfig);
     }
 
