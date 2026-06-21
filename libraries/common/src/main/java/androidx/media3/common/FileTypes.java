@@ -28,6 +28,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /** Defines common file type constants and helper methods. */
@@ -295,6 +296,9 @@ public final class FileTypes {
   /** Returns the {@link Type} corresponding to the {@link Uri} provided. */
   public static @FileTypes.Type int inferFileTypeFromUri(Uri uri) {
     @Nullable String filename = uri.getLastPathSegment();
+    if (filename != null) {
+      filename = filename.toLowerCase(Locale.US);
+    }
     if (filename == null) {
       return FileTypes.UNKNOWN;
     } else if (filename.endsWith(EXTENSION_AC3) || filename.endsWith(EXTENSION_EC3)) {
