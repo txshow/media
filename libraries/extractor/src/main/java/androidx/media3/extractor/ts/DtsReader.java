@@ -98,6 +98,8 @@ public final class DtsReader implements ElementaryStreamReader {
   private long pendingTimeUs;
   private boolean hasCore;
   private boolean skipExtssUntilCore;
+  private int dtsXScanWord;
+  private int dtsXScanBytesRemaining;
 
   /**
    * Constructs a new reader for DTS elementary streams.
@@ -136,6 +138,8 @@ public final class DtsReader implements ElementaryStreamReader {
     uhdAudioChunkId.set(0);
     coreFormatPendingEmit = false;
     skipExtssUntilCore = hasCore;
+    dtsXScanWord = 0;
+    dtsXScanBytesRemaining = 0;
   }
 
   @Override
@@ -229,6 +233,7 @@ public final class DtsReader implements ElementaryStreamReader {
           break;
         case STATE_READING_SAMPLE:
           int bytesToRead = min(data.bytesLeft(), sampleSize - bytesRead);
+          maybeScanDtsX(data.getData(), data.getPosition(), bytesToRead);
           output.sampleData(data, bytesToRead);
           bytesRead += bytesToRead;
           if (bytesRead == sampleSize) {
@@ -422,6 +427,7 @@ public final class DtsReader implements ElementaryStreamReader {
     DtsUtil.DtsHeader dtsHeader = DtsUtil.parseDtsHdHeader(headerScratchBytes.getData());
     updateFormatWithDtsHeaderInfo(dtsHeader);
     sampleSize = dtsHeader.frameSize;
+    startDtsXScan(dtsHeader);
     if (dtsHeader.frameDurationUs != C.TIME_UNSET) {
       sampleDurationUs = dtsHeader.frameDurationUs;
     }
@@ -449,22 +455,66 @@ public final class DtsReader implements ElementaryStreamReader {
         dtsHeader.mimeType != null
             ? dtsHeader.mimeType
             : format != null ? format.sampleMimeType : null;
+    @Nullable String codecs = dtsHeader.codecs;
+    if (codecs == null && format != null && Objects.equals(sampleMimeType, format.sampleMimeType)) {
+      codecs = format.codecs;
+    }
     if (format == null
         || coreFormatPendingEmit
         || dtsHeader.channelCount != format.channelCount
         || dtsHeader.sampleRate != format.sampleRate
-        || !Objects.equals(sampleMimeType, format.sampleMimeType)) {
+        || !Objects.equals(sampleMimeType, format.sampleMimeType)
+        || !Objects.equals(codecs, format.codecs)) {
       Format.Builder formatBuilder = format == null ? new Format.Builder() : format.buildUpon();
       format =
           formatBuilder
               .setId(formatId)
               .setContainerMimeType(containerMimeType)
               .setSampleMimeType(sampleMimeType)
+              .setCodecs(codecs)
               .setChannelCount(dtsHeader.channelCount)
               .setSampleRate(dtsHeader.sampleRate)
               .setLanguage(language)
               .setRoleFlags(roleFlags)
               .build();
+      output.format(format);
+      coreFormatPendingEmit = false;
+    }
+  }
+
+  private void startDtsXScan(DtsUtil.DtsHeader dtsHeader) {
+    dtsXScanWord = 0;
+    dtsXScanBytesRemaining =
+        DtsUtil.isDtsHdMaAudioMimeType(dtsHeader.mimeType)
+            ? min(
+                Math.max(0, sampleSize - extensionSubstreamHeaderSize),
+                DtsUtil.XLL_X_SCAN_MAX_BYTES)
+            : 0;
+  }
+
+  @RequiresNonNull({"output"})
+  private void maybeScanDtsX(byte[] data, int offset, int length) {
+    int bytesToScan = min(length, dtsXScanBytesRemaining);
+    for (int i = 0; i < bytesToScan; i++) {
+      dtsXScanWord = (dtsXScanWord << 8) | (data[offset + i] & 0xFF);
+      @Nullable String codecs = DtsUtil.getDtsXCodecs(dtsXScanWord);
+      if (codecs != null) {
+        updateFormatCodecs(codecs);
+        dtsXScanBytesRemaining = 0;
+        dtsXScanWord = 0;
+        return;
+      }
+    }
+    dtsXScanBytesRemaining -= bytesToScan;
+    if (dtsXScanBytesRemaining == 0) {
+      dtsXScanWord = 0;
+    }
+  }
+
+  @RequiresNonNull({"output"})
+  private void updateFormatCodecs(String codecs) {
+    if (format != null && !Objects.equals(format.codecs, codecs)) {
+      format = format.buildUpon().setCodecs(codecs).build();
       output.format(format);
       coreFormatPendingEmit = false;
     }
