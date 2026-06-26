@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer.hls;
 
+import androidx.annotation.Nullable;
 import androidx.media3.common.Format;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.extractor.ExtractorInput;
@@ -55,6 +56,17 @@ public interface HlsMediaChunkExtractor {
 
   /** Returns whether this instance can be used for extracting multiple continuous segments. */
   boolean isReusable();
+
+  /**
+   * Sets the HLS SAMPLE-AES decryption data for subsequent sample extraction, or clears it if
+   * {@code key} is null.
+   */
+  default void setSampleAesDecryptionData(@Nullable byte[] key, @Nullable byte[] iv) {
+    if (key != null) {
+      throw new UnsupportedOperationException(
+          "HLS SAMPLE-AES decryption is not supported by " + getClass().getName());
+    }
+  }
 
   /**
    * Returns a new instance for extracting the same type of media as this one. Can only be called on

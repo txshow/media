@@ -81,6 +81,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
    * @param mediaSegmentKey The media segment decryption key, if fully encrypted. Null otherwise.
    * @param initSegmentKey The initialization segment decryption key, if fully encrypted. Null
    *     otherwise.
+   * @param sampleEncryptionKey The media sample decryption key, if samples are encrypted. Null
+   *     otherwise.
    * @param shouldSpliceIn Whether samples for this chunk should be spliced into existing samples.
    * @param isIndependent Whether the chunk starts with a keyframe.
    * @param playerId The {@link PlayerId} of the player.
@@ -104,6 +106,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       @Nullable HlsMediaChunk previousChunk,
       @Nullable byte[] mediaSegmentKey,
       @Nullable byte[] initSegmentKey,
+      @Nullable byte[] sampleEncryptionKey,
       boolean shouldSpliceIn,
       boolean isIndependent,
       PlayerId playerId,
@@ -129,6 +132,11 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
             ? getEncryptionIvArray(checkNotNull(mediaSegment.encryptionIV))
             : null;
     DataSource mediaDataSource = buildDataSource(dataSource, mediaSegmentKey, mediaSegmentIv);
+    @Nullable
+    byte[] sampleEncryptionIv =
+        sampleEncryptionKey != null
+            ? getEncryptionIvArray(checkNotNull(mediaSegment.encryptionIV))
+            : null;
 
     // Init segment.
     HlsMediaPlaylist.Segment initSegment = mediaSegment.initializationSegment;
@@ -176,11 +184,14 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
                   && initDataSpec.position == previousChunk.initDataSpec.position);
       boolean isFollowingChunk =
           playlistUrl.equals(previousChunk.playlistUrl) && previousChunk.loadCompleted;
+      boolean canReuseExtractorForSampleEncryption =
+          sampleEncryptionKey == null || previousChunk.sampleEncryptionKey != null;
       id3Decoder = previousChunk.id3Decoder;
       scratchId3Data = previousChunk.scratchId3Data;
       previousExtractor =
           isSameInitData
                   && isFollowingChunk
+                  && canReuseExtractorForSampleEncryption
                   && !previousChunk.extractorInvalidated
                   && previousChunk.discontinuitySequenceNumber == discontinuitySequenceNumber
               ? previousChunk.extractor
@@ -213,6 +224,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
         /* timestampAdjuster= */ timestampAdjusterProvider.getAdjuster(discontinuitySequenceNumber),
         timestampAdjusterInitializationTimeoutMs,
         mediaSegment.drmInitData,
+        sampleEncryptionKey,
+        sampleEncryptionIv,
         previousExtractor,
         id3Decoder,
         scratchId3Data,
@@ -289,6 +302,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   private final HlsExtractorFactory extractorFactory;
   @Nullable private final List<Format> muxedCaptionFormats;
   @Nullable private final DrmInitData drmInitData;
+  @Nullable private final byte[] sampleEncryptionKey;
+  @Nullable private final byte[] sampleEncryptionIv;
   private final Id3Decoder id3Decoder;
   private final ParsableByteArray scratchId3Data;
   private final boolean mediaSegmentEncrypted;
@@ -333,6 +348,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       TimestampAdjuster timestampAdjuster,
       long timestampAdjusterInitializationTimeoutMs,
       @Nullable DrmInitData drmInitData,
+      @Nullable byte[] sampleEncryptionKey,
+      @Nullable byte[] sampleEncryptionIv,
       @Nullable HlsMediaChunkExtractor previousExtractor,
       Id3Decoder id3Decoder,
       ParsableByteArray scratchId3Data,
@@ -366,6 +383,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     this.extractorFactory = extractorFactory;
     this.muxedCaptionFormats = muxedCaptionFormats;
     this.drmInitData = drmInitData;
+    this.sampleEncryptionKey = sampleEncryptionKey;
+    this.sampleEncryptionIv = sampleEncryptionIv;
     this.previousExtractor = previousExtractor;
     this.id3Decoder = id3Decoder;
     this.scratchId3Data = scratchId3Data;
@@ -497,10 +516,14 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     // initDataLoadRequired =>  initDataSource != null && initDataSpec != null
     checkNotNull(initDataSource);
     checkNotNull(initDataSpec);
+    // Sample encryption data is passed while loading init data so extractors can wrap their outputs
+    // before initialization. Init data itself is not expected to contain media samples.
     feedDataToExtractor(
         initDataSource,
         initDataSpec,
         initSegmentEncrypted,
+        sampleEncryptionKey,
+        sampleEncryptionIv,
         /* initializeTimestampAdjuster= */ false);
     nextLoadPosition = 0;
     initDataLoadRequired = false;
@@ -509,7 +532,12 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   @RequiresNonNull("output")
   private void loadMedia() throws IOException {
     feedDataToExtractor(
-        dataSource, dataSpec, mediaSegmentEncrypted, /* initializeTimestampAdjuster= */ true);
+        dataSource,
+        dataSpec,
+        mediaSegmentEncrypted,
+        sampleEncryptionKey,
+        sampleEncryptionIv,
+        /* initializeTimestampAdjuster= */ true);
   }
 
   /**
@@ -522,6 +550,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       DataSource dataSource,
       DataSpec dataSpec,
       boolean dataIsEncrypted,
+      @Nullable byte[] sampleEncryptionKey,
+      @Nullable byte[] sampleEncryptionIv,
       boolean initializeTimestampAdjuster)
       throws IOException {
     // If we previously fed part of this chunk to the extractor, we need to skip it this time. For
@@ -539,7 +569,12 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
     }
     try {
       ExtractorInput input =
-          prepareExtraction(dataSource, loadDataSpec, initializeTimestampAdjuster);
+          prepareExtraction(
+              dataSource,
+              loadDataSpec,
+              sampleEncryptionKey,
+              sampleEncryptionIv,
+              initializeTimestampAdjuster);
       if (skipLoadedBytes) {
         input.skipFully(nextLoadPosition);
       }
@@ -569,7 +604,11 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
   @RequiresNonNull("output")
   @EnsuresNonNull("extractor")
   private DefaultExtractorInput prepareExtraction(
-      DataSource dataSource, DataSpec dataSpec, boolean initializeTimestampAdjuster)
+      DataSource dataSource,
+      DataSpec dataSpec,
+      @Nullable byte[] sampleEncryptionKey,
+      @Nullable byte[] sampleEncryptionIv,
+      boolean initializeTimestampAdjuster)
       throws IOException {
     long bytesToRead = dataSource.open(dataSpec);
     if (initializeTimestampAdjuster) {
@@ -600,6 +639,7 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
                   dataSource.getResponseHeaders(),
                   extractorInput,
                   playerId);
+      extractor.setSampleAesDecryptionData(sampleEncryptionKey, sampleEncryptionIv);
       if (extractor.isPackedAudioExtractor()) {
         output.setSampleOffsetUs(
             id3Timestamp != C.TIME_UNSET
@@ -612,6 +652,8 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
       }
       output.onNewExtractor();
       extractor.init(output);
+    } else {
+      extractor.setSampleAesDecryptionData(sampleEncryptionKey, sampleEncryptionIv);
     }
     output.setDrmInitData(drmInitData);
     return extractorInput;

@@ -298,6 +298,12 @@ public final class HlsDownloader extends SegmentDownloader<HlsPlaylist> {
         out.add(new Segment(startTimeUs, SegmentDownloader.getCompressibleDataSpec(keyUri)));
       }
     }
+    if (segment.sampleEncryptionKeyUri != null) {
+      Uri keyUri = UriUtil.resolveToUri(baseUri, segment.sampleEncryptionKeyUri);
+      if (seenEncryptionKeyUris.add(keyUri)) {
+        out.add(new Segment(startTimeUs, SegmentDownloader.getCompressibleDataSpec(keyUri)));
+      }
+    }
     Uri segmentUri = UriUtil.resolveToUri(baseUri, segment.url);
     DataSpec dataSpec = new DataSpec(segmentUri, segment.byteRangeOffset, segment.byteRangeLength);
     out.add(new Segment(startTimeUs, dataSpec));

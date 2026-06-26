@@ -23,8 +23,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * LRU cache that holds up to {@code maxSize} full-segment-encryption keys. Which each addition,
- * once the cache's size exceeds {@code maxSize}, the oldest item (according to insertion order) is
+ * LRU cache that holds up to {@code maxSize} HLS identity encryption keys. With each addition, once
+ * the cache's size exceeds {@code maxSize}, the oldest item (according to insertion order) is
  * removed.
  */
 /* package */ final class FullSegmentEncryptionKeyCache {

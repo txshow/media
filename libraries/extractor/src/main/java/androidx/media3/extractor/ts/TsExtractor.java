@@ -17,6 +17,7 @@ package androidx.media3.extractor.ts;
 
 import static androidx.media3.extractor.ts.TsPayloadReader.EsInfo.AUDIO_TYPE_UNDEFINED;
 import static androidx.media3.extractor.ts.TsPayloadReader.FLAG_PAYLOAD_UNIT_START_INDICATOR;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
@@ -153,6 +154,11 @@ public final class TsExtractor implements Extractor {
 
   private static final int TS_PAT_PID = 0;
   private static final int MAX_PID_PLUS_ONE = 0x2000;
+  private static final int HLS_SAMPLE_AES_BLOCK_SIZE = 16;
+  private static final int TS_STREAM_TYPE_HLS_SAMPLE_AES_AC3 = 0xC1;
+  private static final int TS_STREAM_TYPE_HLS_SAMPLE_AES_E_AC3 = 0xC2;
+  private static final int TS_STREAM_TYPE_HLS_SAMPLE_AES_AAC = 0xCF;
+  private static final int TS_STREAM_TYPE_HLS_SAMPLE_AES_H264 = 0xDB;
 
   private static final long AC3_FORMAT_IDENTIFIER = 0x41432d33;
   private static final long E_AC3_FORMAT_IDENTIFIER = 0x45414333;
@@ -183,6 +189,9 @@ public final class TsExtractor implements Extractor {
   private boolean hasOutputSeekMap;
   private boolean pendingSeekToStart;
   @Nullable private TsPayloadReader id3Reader;
+  @Nullable private HlsSampleAesExtractorOutput hlsSampleAesOutput;
+  @Nullable private byte[] hlsSampleAesKey;
+  @Nullable private byte[] hlsSampleAesIv;
   private int bytesSinceLastSync;
   private int pcrPid;
 
@@ -368,10 +377,29 @@ public final class TsExtractor implements Extractor {
 
   @Override
   public void init(ExtractorOutput output) {
-    this.output =
+    ExtractorOutput extractorOutput =
         (extractorFlags & FLAG_EMIT_RAW_SUBTITLE_DATA) == 0
             ? new SubtitleTranscodingExtractorOutput(output, subtitleParserFactory)
             : output;
+    if (hlsSampleAesKey != null && hlsSampleAesIv != null) {
+      hlsSampleAesOutput = new HlsSampleAesExtractorOutput(extractorOutput);
+      hlsSampleAesOutput.setDecryptionData(hlsSampleAesKey, hlsSampleAesIv);
+      this.output = hlsSampleAesOutput;
+    } else {
+      hlsSampleAesOutput = null;
+      this.output = extractorOutput;
+    }
+  }
+
+  /** Sets HLS SAMPLE-AES identity decryption data, or clears it if {@code key} is null. */
+  public void setHlsSampleAesDecryptionData(@Nullable byte[] key, @Nullable byte[] iv) {
+    checkArgument(key == null || key.length == HLS_SAMPLE_AES_BLOCK_SIZE);
+    checkArgument(key == null || (iv != null && iv.length == HLS_SAMPLE_AES_BLOCK_SIZE));
+    hlsSampleAesKey = key == null ? null : Arrays.copyOf(key, key.length);
+    hlsSampleAesIv = key == null ? null : Arrays.copyOf(checkNotNull(iv), iv.length);
+    if (hlsSampleAesOutput != null) {
+      hlsSampleAesOutput.setDecryptionData(hlsSampleAesKey, hlsSampleAesIv);
+    }
   }
 
   @Override
@@ -779,6 +807,12 @@ public final class TsExtractor implements Extractor {
         if (streamType == 0x06 || streamType == 0x05) {
           streamType = esInfo.streamType;
         }
+        if (mode == MODE_HLS) {
+          int hlsSampleAesStreamType = getHlsSampleAesStreamType(streamType);
+          if (hlsSampleAesStreamType != C.INDEX_UNSET) {
+            streamType = hlsSampleAesStreamType;
+          }
+        }
         remainingEntriesLength -= esInfoLength + 5;
 
         int trackId = elementaryPid;
@@ -924,6 +958,21 @@ public final class TsExtractor implements Extractor {
           dvbSubtitleInfos,
           Arrays.copyOfRange(data.getData(), descriptorsStartPosition, descriptorsEndPosition),
           dolbyVisionConfig);
+    }
+  }
+
+  private static int getHlsSampleAesStreamType(int streamType) {
+    switch (streamType) {
+      case TS_STREAM_TYPE_HLS_SAMPLE_AES_AC3:
+        return TS_STREAM_TYPE_AC3;
+      case TS_STREAM_TYPE_HLS_SAMPLE_AES_E_AC3:
+        return TS_STREAM_TYPE_E_AC3;
+      case TS_STREAM_TYPE_HLS_SAMPLE_AES_AAC:
+        return TS_STREAM_TYPE_AAC_ADTS;
+      case TS_STREAM_TYPE_HLS_SAMPLE_AES_H264:
+        return TS_STREAM_TYPE_H264;
+      default:
+        return C.INDEX_UNSET;
     }
   }
 }

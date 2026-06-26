@@ -17,6 +17,7 @@ package androidx.media3.exoplayer.hls;
 
 import static com.google.common.base.Preconditions.checkState;
 
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.Format;
 import androidx.media3.common.util.TimestampAdjuster;
@@ -116,6 +117,18 @@ public final class BundledHlsMediaChunkExtractor implements HlsMediaChunkExtract
     Extractor underlyingExtractor = extractor.getUnderlyingImplementation();
     return underlyingExtractor instanceof TsExtractor
         || underlyingExtractor instanceof FragmentedMp4Extractor;
+  }
+
+  @Override
+  public void setSampleAesDecryptionData(@Nullable byte[] key, @Nullable byte[] iv) {
+    Extractor underlyingExtractor = extractor.getUnderlyingImplementation();
+    if (underlyingExtractor instanceof TsExtractor) {
+      ((TsExtractor) underlyingExtractor).setHlsSampleAesDecryptionData(key, iv);
+    } else if (key != null) {
+      throw new UnsupportedOperationException(
+          "HLS SAMPLE-AES decryption is not supported by "
+              + underlyingExtractor.getClass().getName());
+    }
   }
 
   @Override
