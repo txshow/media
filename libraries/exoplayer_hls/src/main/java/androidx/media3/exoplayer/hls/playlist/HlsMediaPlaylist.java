@@ -135,6 +135,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
           /* relativeStartTimeUs= */ C.TIME_UNSET,
           /* drmInitData= */ null,
           fullSegmentEncryptionKeyUri,
+          /* sampleEncryptionKeyUri= */ null,
           encryptionIV,
           byteRangeOffset,
           byteRangeLength,
@@ -173,6 +174,56 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
         long byteRangeLength,
         boolean hasGapTag,
         List<Part> parts) {
+      this(
+          url,
+          initializationSegment,
+          title,
+          durationUs,
+          relativeDiscontinuitySequence,
+          relativeStartTimeUs,
+          drmInitData,
+          fullSegmentEncryptionKeyUri,
+          /* sampleEncryptionKeyUri= */ null,
+          encryptionIV,
+          byteRangeOffset,
+          byteRangeLength,
+          hasGapTag,
+          parts);
+    }
+
+    /**
+     * Creates an instance.
+     *
+     * @param url See {@link #url}.
+     * @param initializationSegment See {@link #initializationSegment}.
+     * @param title See {@link #title}.
+     * @param durationUs See {@link #durationUs}.
+     * @param relativeDiscontinuitySequence See {@link #relativeDiscontinuitySequence}.
+     * @param relativeStartTimeUs See {@link #relativeStartTimeUs}.
+     * @param drmInitData See {@link #drmInitData}.
+     * @param fullSegmentEncryptionKeyUri See {@link #fullSegmentEncryptionKeyUri}.
+     * @param sampleEncryptionKeyUri See {@link #sampleEncryptionKeyUri}.
+     * @param encryptionIV See {@link #encryptionIV}.
+     * @param byteRangeOffset See {@link #byteRangeOffset}.
+     * @param byteRangeLength See {@link #byteRangeLength}.
+     * @param hasGapTag See {@link #hasGapTag}.
+     * @param parts See {@link #parts}.
+     */
+    Segment(
+        String url,
+        @Nullable Segment initializationSegment,
+        String title,
+        long durationUs,
+        int relativeDiscontinuitySequence,
+        long relativeStartTimeUs,
+        @Nullable DrmInitData drmInitData,
+        @Nullable String fullSegmentEncryptionKeyUri,
+        @Nullable String sampleEncryptionKeyUri,
+        @Nullable String encryptionIV,
+        long byteRangeOffset,
+        long byteRangeLength,
+        boolean hasGapTag,
+        List<Part> parts) {
       super(
           url,
           initializationSegment,
@@ -181,6 +232,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
           relativeStartTimeUs,
           drmInitData,
           fullSegmentEncryptionKeyUri,
+          sampleEncryptionKeyUri,
           encryptionIV,
           byteRangeOffset,
           byteRangeLength,
@@ -206,6 +258,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
           relativeStartTimeUs,
           drmInitData,
           fullSegmentEncryptionKeyUri,
+          sampleEncryptionKeyUri,
           encryptionIV,
           byteRangeOffset,
           byteRangeLength,
@@ -254,6 +307,56 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
         boolean hasGapTag,
         boolean isIndependent,
         boolean isPreload) {
+      this(
+          url,
+          initializationSegment,
+          durationUs,
+          relativeDiscontinuitySequence,
+          relativeStartTimeUs,
+          drmInitData,
+          fullSegmentEncryptionKeyUri,
+          /* sampleEncryptionKeyUri= */ null,
+          encryptionIV,
+          byteRangeOffset,
+          byteRangeLength,
+          hasGapTag,
+          isIndependent,
+          isPreload);
+    }
+
+    /**
+     * Creates an instance.
+     *
+     * @param url See {@link #url}.
+     * @param initializationSegment See {@link #initializationSegment}.
+     * @param durationUs See {@link #durationUs}.
+     * @param relativeDiscontinuitySequence See {@link #relativeDiscontinuitySequence}.
+     * @param relativeStartTimeUs See {@link #relativeStartTimeUs}.
+     * @param drmInitData See {@link #drmInitData}.
+     * @param fullSegmentEncryptionKeyUri See {@link #fullSegmentEncryptionKeyUri}.
+     * @param sampleEncryptionKeyUri See {@link #sampleEncryptionKeyUri}.
+     * @param encryptionIV See {@link #encryptionIV}.
+     * @param byteRangeOffset See {@link #byteRangeOffset}.
+     * @param byteRangeLength See {@link #byteRangeLength}.
+     * @param hasGapTag See {@link #hasGapTag}.
+     * @param isIndependent See {@link #isIndependent}.
+     * @param isPreload See {@link #isPreload}.
+     */
+    Part(
+        String url,
+        @Nullable Segment initializationSegment,
+        long durationUs,
+        int relativeDiscontinuitySequence,
+        long relativeStartTimeUs,
+        @Nullable DrmInitData drmInitData,
+        @Nullable String fullSegmentEncryptionKeyUri,
+        @Nullable String sampleEncryptionKeyUri,
+        @Nullable String encryptionIV,
+        long byteRangeOffset,
+        long byteRangeLength,
+        boolean hasGapTag,
+        boolean isIndependent,
+        boolean isPreload) {
       super(
           url,
           initializationSegment,
@@ -262,6 +365,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
           relativeStartTimeUs,
           drmInitData,
           fullSegmentEncryptionKeyUri,
+          sampleEncryptionKeyUri,
           encryptionIV,
           byteRangeOffset,
           byteRangeLength,
@@ -279,6 +383,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
           relativeStartTimeUs,
           drmInitData,
           fullSegmentEncryptionKeyUri,
+          sampleEncryptionKeyUri,
           encryptionIV,
           byteRangeOffset,
           byteRangeLength,
@@ -323,6 +428,12 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
     @Nullable public final String fullSegmentEncryptionKeyUri;
 
     /**
+     * The sample encryption identity key URI as defined by #EXT-X-KEY, or null if the segment does
+     * not use SAMPLE-AES with identity key.
+     */
+    @Nullable public final String sampleEncryptionKeyUri;
+
+    /**
      * The encryption initialization vector as defined by #EXT-X-KEY, or null if the segment is not
      * encrypted.
      */
@@ -352,6 +463,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
         long relativeStartTimeUs,
         @Nullable DrmInitData drmInitData,
         @Nullable String fullSegmentEncryptionKeyUri,
+        @Nullable String sampleEncryptionKeyUri,
         @Nullable String encryptionIV,
         long byteRangeOffset,
         long byteRangeLength,
@@ -363,6 +475,7 @@ public final class HlsMediaPlaylist extends HlsPlaylist {
       this.relativeStartTimeUs = relativeStartTimeUs;
       this.drmInitData = drmInitData;
       this.fullSegmentEncryptionKeyUri = fullSegmentEncryptionKeyUri;
+      this.sampleEncryptionKeyUri = sampleEncryptionKeyUri;
       this.encryptionIV = encryptionIV;
       this.byteRangeOffset = byteRangeOffset;
       this.byteRangeLength = byteRangeLength;
