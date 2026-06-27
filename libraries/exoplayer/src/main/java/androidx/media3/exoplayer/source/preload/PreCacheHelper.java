@@ -15,6 +15,7 @@
  */
 package androidx.media3.exoplayer.source.preload;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.Math.min;
 
@@ -26,6 +27,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.util.Consumer;
 import androidx.media3.common.util.UnstableApi;
@@ -121,6 +123,8 @@ public final class PreCacheHelper {
     private final RenderersFactory renderersFactory;
     private TrackSelectionParameters trackSelectionParameters;
     private Executor downloadExecutor;
+    @Nullable private PriorityTaskManager upstreamPriorityTaskManager;
+    private int progressiveParallelDownloadCount;
     @Nullable private Listener listener;
 
     /**
@@ -138,6 +142,7 @@ public final class PreCacheHelper {
       this.trackSelectionParameters = TrackSelectionParameters.DEFAULT;
       this.renderersFactory = new DefaultRenderersFactory(context);
       this.downloadExecutor = Runnable::run;
+      this.progressiveParallelDownloadCount = 1;
     }
 
     /**
@@ -158,6 +163,7 @@ public final class PreCacheHelper {
       this.trackSelectionParameters = TrackSelectionParameters.DEFAULT;
       this.renderersFactory = renderersFactory;
       this.downloadExecutor = Runnable::run;
+      this.progressiveParallelDownloadCount = 1;
     }
 
     /**
@@ -181,6 +187,7 @@ public final class PreCacheHelper {
       this.trackSelectionParameters = TrackSelectionParameters.DEFAULT;
       this.renderersFactory = new DefaultRenderersFactory(context);
       this.downloadExecutor = Runnable::run;
+      this.progressiveParallelDownloadCount = 1;
     }
 
     /**
@@ -205,6 +212,7 @@ public final class PreCacheHelper {
       this.trackSelectionParameters = TrackSelectionParameters.DEFAULT;
       this.renderersFactory = renderersFactory;
       this.downloadExecutor = Runnable::run;
+      this.progressiveParallelDownloadCount = 1;
     }
 
     /**
@@ -241,6 +249,38 @@ public final class PreCacheHelper {
     }
 
     /**
+     * Sets an optional {@link PriorityTaskManager} used when download tasks read from upstream.
+     *
+     * <p>When the same manager is also set on an {@link ExoPlayer}, pre-cache downloads with {@link
+     * C#PRIORITY_DOWNLOAD} pause while playback is loading with the higher player priority.
+     *
+     * @return This factory, for convenience.
+     */
+    @CanIgnoreReturnValue
+    public PreCacheHelper.Factory setUpstreamPriorityTaskManager(
+        @Nullable PriorityTaskManager upstreamPriorityTaskManager) {
+      this.upstreamPriorityTaskManager = upstreamPriorityTaskManager;
+      return this;
+    }
+
+    /**
+     * Sets the maximum number of parallel byte-range downloads for progressive media.
+     *
+     * <p>This value only applies when the requested progressive download has a known byte range.
+     * Adaptive streams use their segment downloader parallelism through {@link
+     * #setDownloadExecutor}.
+     *
+     * @return This factory, for convenience.
+     */
+    @CanIgnoreReturnValue
+    public PreCacheHelper.Factory setProgressiveParallelDownloadCount(
+        int progressiveParallelDownloadCount) {
+      checkArgument(progressiveParallelDownloadCount > 0);
+      this.progressiveParallelDownloadCount = progressiveParallelDownloadCount;
+      return this;
+    }
+
+    /**
      * Sets the {@link Listener}.
      *
      * @return This factory, for convenience.
@@ -260,14 +300,16 @@ public final class PreCacheHelper {
       CacheDataSource.Factory cacheDataSourceFactory =
           new CacheDataSource.Factory()
               .setUpstreamDataSourceFactory(upstreamDataSourceFactory)
-              .setCache(cache);
+              .setCache(cache)
+              .setUpstreamPriorityTaskManager(upstreamPriorityTaskManager);
       DownloadHelper.Factory downloadHelperFactory =
           new DownloadHelper.Factory()
               .setDataSourceFactory(cacheDataSourceFactory)
               .setRenderersFactory(renderersFactory)
               .setTrackSelectionParameters(trackSelectionParameters);
       DownloaderFactory downloaderFactory =
-          new DefaultDownloaderFactory(cacheDataSourceFactory, downloadExecutor);
+          new DefaultDownloaderFactory(
+              cacheDataSourceFactory, downloadExecutor, progressiveParallelDownloadCount);
       return new PreCacheHelper(
           mediaItem,
           /* testMediaSourceFactory= */ null,
@@ -390,6 +432,9 @@ public final class PreCacheHelper {
     @GuardedBy("this")
     private int executorCount;
 
+    @GuardedBy("this")
+    private boolean canceled;
+
     private ReleasableExecutorSupplier(Handler preCacheHandler) {
       this.preCacheHandler = preCacheHandler;
     }
@@ -406,15 +451,19 @@ public final class PreCacheHelper {
       return new ReleasableSingleThreadExecutor(this::onExecutorReleased);
     }
 
+    private synchronized void cancel() {
+      canceled = true;
+    }
+
     private void onExecutorReleased() {
       synchronized (ReleasableExecutorSupplier.this) {
         checkState(executorCount > 0);
         executorCount--;
-        if (wereExecutorsReleased()) {
+        if (wereExecutorsReleased() && !canceled) {
           preCacheHandler.post(
               () -> {
                 checkState(wereExecutorsReleased());
-                if (downloadCallback != null) {
+                if (downloadCallback != null && !isCanceled()) {
                   downloadCallback.maybeSubmitPendingDownloadRequest();
                 }
               });
@@ -426,6 +475,10 @@ public final class PreCacheHelper {
       synchronized (ReleasableExecutorSupplier.this) {
         return executorCount == 0;
       }
+    }
+
+    private synchronized boolean isCanceled() {
+      return canceled;
     }
   }
 
@@ -541,6 +594,9 @@ public final class PreCacheHelper {
       checkState(Looper.myLooper() == preCacheHandler.getLooper());
       synchronized (lock) {
         isCanceled = true;
+      }
+      if (releasableExecutorSupplier != null) {
+        releasableExecutorSupplier.cancel();
       }
       pendingDownloadRequest = null;
       downloadHelper.release();

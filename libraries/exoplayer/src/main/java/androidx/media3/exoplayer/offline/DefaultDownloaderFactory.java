@@ -16,6 +16,7 @@
 package androidx.media3.exoplayer.offline;
 
 import static androidx.media3.common.util.Util.contains;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 
 import android.util.SparseArray;
@@ -37,6 +38,7 @@ public class DefaultDownloaderFactory implements DownloaderFactory {
 
   private final CacheDataSource.Factory cacheDataSourceFactory;
   private final Executor executor;
+  private final int progressiveParallelDownloadCount;
   private final SparseArray<SegmentDownloaderFactory> segmentDownloaderFactories;
 
   /**
@@ -63,8 +65,26 @@ public class DefaultDownloaderFactory implements DownloaderFactory {
    */
   public DefaultDownloaderFactory(
       CacheDataSource.Factory cacheDataSourceFactory, Executor executor) {
+    this(cacheDataSourceFactory, executor, /* progressiveParallelDownloadCount= */ 1);
+  }
+
+  /**
+   * Creates an instance.
+   *
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which
+   *     downloads will be written.
+   * @param executor An {@link Executor} used to download data.
+   * @param progressiveParallelDownloadCount The maximum number of parallel byte-range downloads for
+   *     progressive media with known byte ranges.
+   */
+  public DefaultDownloaderFactory(
+      CacheDataSource.Factory cacheDataSourceFactory,
+      Executor executor,
+      int progressiveParallelDownloadCount) {
+    checkArgument(progressiveParallelDownloadCount > 0);
     this.cacheDataSourceFactory = checkNotNull(cacheDataSourceFactory);
     this.executor = checkNotNull(executor);
+    this.progressiveParallelDownloadCount = progressiveParallelDownloadCount;
     this.segmentDownloaderFactories = new SparseArray<>();
   }
 
@@ -87,7 +107,8 @@ public class DefaultDownloaderFactory implements DownloaderFactory {
             cacheDataSourceFactory,
             executor,
             (byteRange != null) ? byteRange.offset : 0,
-            (byteRange != null) ? byteRange.length : C.LENGTH_UNSET);
+            (byteRange != null) ? byteRange.length : C.LENGTH_UNSET,
+            progressiveParallelDownloadCount);
       default:
         throw new IllegalArgumentException("Unsupported type: " + contentType);
     }
@@ -103,12 +124,17 @@ public class DefaultDownloaderFactory implements DownloaderFactory {
             .setStreamKeys(request.streamKeys)
             .setCustomCacheKey(request.customCacheKey)
             .build();
+    long startPositionUs = 0;
+    long durationUs = C.TIME_UNSET;
     if (request.timeRange != null) {
-      downloaderFactory
-          .setStartPositionUs(request.timeRange.startPositionUs)
-          .setDurationUs(request.timeRange.durationUs);
+      startPositionUs = request.timeRange.startPositionUs;
+      durationUs = request.timeRange.durationUs;
     }
-    return downloaderFactory.setExecutor(executor).create(mediaItem);
+    return downloaderFactory
+        .setStartPositionUs(startPositionUs)
+        .setDurationUs(durationUs)
+        .setExecutor(executor)
+        .create(mediaItem);
   }
 
   // LINT.IfChange

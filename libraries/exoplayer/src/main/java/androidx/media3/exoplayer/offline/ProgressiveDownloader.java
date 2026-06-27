@@ -17,7 +17,10 @@ package androidx.media3.exoplayer.offline;
 
 import static androidx.annotation.VisibleForTesting.PRIVATE;
 import static androidx.media3.common.util.Util.percentFloat;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.lang.Math.max;
+import static java.lang.Math.min;
 
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
@@ -29,28 +32,38 @@ import androidx.media3.common.util.RunnableFutureTask;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.DataSpec;
+import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSource;
 import androidx.media3.datasource.cache.CacheWriter;
 import java.io.IOException;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
 /** A downloader for progressive media streams. */
 @UnstableApi
 public final class ProgressiveDownloader implements Downloader {
 
+  private static final long MIN_PARALLEL_CHUNK_SIZE_BYTES = 512 * 1024;
+
   private final Executor executor;
+  private final CacheDataSource.Factory cacheDataSourceFactory;
+  private final Cache cache;
+  private final String cacheKey;
+  private final int parallelDownloadCount;
 
   @VisibleForTesting(otherwise = PRIVATE)
   /* package */ final DataSpec dataSpec;
 
-  private final CacheDataSource dataSource;
-  private final CacheWriter cacheWriter;
   @Nullable private final PriorityTaskManager priorityTaskManager;
+  private final ArrayList<DownloadRunnable> activeRunnables;
+  private final Object progressLock;
+  private final HashMap<Long, Long> bytesCachedByDataSpecPosition;
 
   @Nullable private ProgressListener progressListener;
-  private volatile @MonotonicNonNull RunnableFutureTask<Void, IOException> downloadRunnable;
   private volatile boolean isCanceled;
 
   /**
@@ -90,9 +103,7 @@ public final class ProgressiveDownloader implements Downloader {
    * @param mediaItem The media item with a uri to the stream to be downloaded.
    * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
    *     download will be written.
-   * @param executor An {@link Executor} used to make requests for the media being downloaded. In
-   *     the future, providing an {@link Executor} that uses multiple threads may speed up the
-   *     download by allowing parts of it to be executed in parallel.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded.
    */
   public ProgressiveDownloader(
       MediaItem mediaItem, CacheDataSource.Factory cacheDataSourceFactory, Executor executor) {
@@ -110,9 +121,7 @@ public final class ProgressiveDownloader implements Downloader {
    * @param mediaItem The media item with a uri to the stream to be downloaded.
    * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
    *     download will be written.
-   * @param executor An {@link Executor} used to make requests for the media being downloaded. In
-   *     the future, providing an {@link Executor} that uses multiple threads may speed up the
-   *     download by allowing parts of it to be executed in parallel.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded.
    * @param position The position of the {@link DataSpec} from which the {@link
    *     ProgressiveDownloader} downloads.
    * @param length The length of the {@link DataSpec} for which the {@link ProgressiveDownloader}
@@ -124,7 +133,39 @@ public final class ProgressiveDownloader implements Downloader {
       Executor executor,
       long position,
       long length) {
+    this(
+        mediaItem,
+        cacheDataSourceFactory,
+        executor,
+        position,
+        length,
+        /* parallelDownloadCount= */ 1);
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param mediaItem The media item with a uri to the stream to be downloaded.
+   * @param cacheDataSourceFactory A {@link CacheDataSource.Factory} for the cache into which the
+   *     download will be written.
+   * @param executor An {@link Executor} used to make requests for the media being downloaded.
+   * @param position The position of the {@link DataSpec} from which the {@link
+   *     ProgressiveDownloader} downloads.
+   * @param length The length of the {@link DataSpec} for which the {@link ProgressiveDownloader}
+   *     downloads.
+   * @param parallelDownloadCount The maximum number of parallel byte-range downloads to use when
+   *     {@code length} is known.
+   */
+  public ProgressiveDownloader(
+      MediaItem mediaItem,
+      CacheDataSource.Factory cacheDataSourceFactory,
+      Executor executor,
+      long position,
+      long length,
+      int parallelDownloadCount) {
+    checkArgument(parallelDownloadCount > 0);
     this.executor = checkNotNull(executor);
+    this.cacheDataSourceFactory = checkNotNull(cacheDataSourceFactory);
     checkNotNull(mediaItem.localConfiguration);
     dataSpec =
         new DataSpec.Builder()
@@ -134,61 +175,51 @@ public final class ProgressiveDownloader implements Downloader {
             .setPosition(position)
             .setLength(length)
             .build();
-    dataSource = cacheDataSourceFactory.createDataSourceForDownloading();
-    @SuppressWarnings("nullness:methodref.receiver.bound")
-    CacheWriter.ProgressListener progressListener = this::onProgress;
-    cacheWriter =
-        new CacheWriter(dataSource, dataSpec, /* temporaryBuffer= */ null, progressListener);
+    cache = checkNotNull(cacheDataSourceFactory.getCache());
+    cacheKey = cacheDataSourceFactory.getCacheKeyFactory().buildCacheKey(dataSpec);
+    this.parallelDownloadCount = parallelDownloadCount;
     priorityTaskManager = cacheDataSourceFactory.getUpstreamPriorityTaskManager();
+    activeRunnables = new ArrayList<>();
+    progressLock = new Object();
+    bytesCachedByDataSpecPosition = new HashMap<>();
   }
 
   @Override
   public void download(@Nullable ProgressListener progressListener)
       throws IOException, InterruptedException {
     this.progressListener = progressListener;
+    synchronized (progressLock) {
+      bytesCachedByDataSpecPosition.clear();
+    }
     if (priorityTaskManager != null) {
       priorityTaskManager.add(C.PRIORITY_DOWNLOAD);
     }
     try {
-      boolean finished = false;
-      while (!finished && !isCanceled) {
-        // Recreate downloadRunnable on each loop iteration to avoid rethrowing a previous error.
-        downloadRunnable =
-            new RunnableFutureTask<Void, IOException>() {
-              @Override
-              protected Void doWork() throws IOException {
-                cacheWriter.cache();
-                return null;
-              }
-
-              @Override
-              protected void cancelWork() {
-                cacheWriter.cancel();
-              }
-            };
+      ArrayDeque<DataSpec> pendingDataSpecs = createDownloadDataSpecs();
+      while (!isCanceled && (!pendingDataSpecs.isEmpty() || getActiveRunnableCount() > 0)) {
         if (priorityTaskManager != null) {
           priorityTaskManager.proceed(C.PRIORITY_DOWNLOAD);
         }
-        executor.execute(downloadRunnable);
-        try {
-          downloadRunnable.get();
-          finished = true;
-        } catch (ExecutionException e) {
-          Throwable cause = checkNotNull(e.getCause());
-          if (cause instanceof PriorityTooLowException) {
-            // The next loop iteration will block until the task is able to proceed.
-          } else if (cause instanceof IOException) {
-            throw (IOException) cause;
-          } else {
-            // The cause must be an uncaught Throwable type.
-            Util.sneakyThrow(cause);
-          }
+
+        while (!pendingDataSpecs.isEmpty()
+            && getActiveRunnableCount() < parallelDownloadCount
+            && !isCanceled) {
+          DownloadRunnable downloadRunnable = new DownloadRunnable(pendingDataSpecs.removeFirst());
+          addActiveRunnable(downloadRunnable);
+          executor.execute(downloadRunnable);
+          downloadRunnable.blockUntilStarted();
+        }
+
+        boolean processedRunnable =
+            processActiveRunnables(
+                pendingDataSpecs, /* blockUntilFinished= */ pendingDataSpecs.isEmpty());
+        if (!processedRunnable && getActiveRunnableCount() >= parallelDownloadCount) {
+          processActiveRunnable(getActiveRunnable(/* index= */ 0), pendingDataSpecs);
         }
       }
     } finally {
-      // If the main download thread was interrupted as part of cancelation, then it's possible that
-      // the runnable is still doing work. We need to wait until it's finished before returning.
-      checkNotNull(downloadRunnable).blockUntilFinished();
+      cancelActiveRunnables();
+      waitAndClearActiveRunnables();
       if (priorityTaskManager != null) {
         priorityTaskManager.remove(C.PRIORITY_DOWNLOAD);
       }
@@ -197,26 +228,183 @@ public final class ProgressiveDownloader implements Downloader {
 
   @Override
   public void cancel() {
-    isCanceled = true;
-    RunnableFutureTask<Void, IOException> downloadRunnable = this.downloadRunnable;
-    if (downloadRunnable != null) {
-      downloadRunnable.cancel(/* interruptIfRunning= */ true);
+    synchronized (activeRunnables) {
+      isCanceled = true;
+      for (int i = 0; i < activeRunnables.size(); i++) {
+        activeRunnables.get(i).cancel(/* interruptIfRunning= */ true);
+      }
     }
   }
 
   @Override
   public void remove() {
-    dataSource.getCache().removeResource(dataSource.getCacheKeyFactory().buildCacheKey(dataSpec));
+    cache.removeResource(cacheKey);
   }
 
-  private void onProgress(long contentLength, long bytesCached, long newBytesCached) {
+  private void onProgress(
+      DataSpec progressDataSpec, long contentLength, long bytesCached, long newBytesCached) {
+    @Nullable ProgressListener progressListener = this.progressListener;
     if (progressListener == null) {
       return;
+    }
+    if (dataSpec.length != C.LENGTH_UNSET) {
+      contentLength = dataSpec.length;
+      synchronized (progressLock) {
+        bytesCachedByDataSpecPosition.put(progressDataSpec.position, bytesCached);
+        bytesCached = 0;
+        for (long bytesCachedInDataSpec : bytesCachedByDataSpecPosition.values()) {
+          bytesCached += bytesCachedInDataSpec;
+        }
+      }
     }
     float percentDownloaded =
         contentLength == C.LENGTH_UNSET || contentLength == 0
             ? C.PERCENTAGE_UNSET
             : percentFloat(bytesCached, contentLength);
-    checkNotNull(progressListener).onProgress(contentLength, bytesCached, percentDownloaded);
+    progressListener.onProgress(contentLength, bytesCached, percentDownloaded);
+  }
+
+  @VisibleForTesting(otherwise = PRIVATE)
+  /* package */ ArrayDeque<DataSpec> createDownloadDataSpecs() {
+    ArrayDeque<DataSpec> dataSpecs = new ArrayDeque<>();
+    if (dataSpec.length == C.LENGTH_UNSET || dataSpec.length <= 0 || parallelDownloadCount == 1) {
+      dataSpecs.add(dataSpec);
+      return dataSpecs;
+    }
+
+    long chunkCountBySize = ceilDivide(dataSpec.length, MIN_PARALLEL_CHUNK_SIZE_BYTES);
+    int chunkCount = (int) min(parallelDownloadCount, max(1, chunkCountBySize));
+    long chunkLength = ceilDivide(dataSpec.length, chunkCount);
+    for (int i = 0; i < chunkCount; i++) {
+      long chunkOffset = i * chunkLength;
+      long remainingLength = dataSpec.length - chunkOffset;
+      if (remainingLength <= 0) {
+        break;
+      }
+      dataSpecs.add(dataSpec.subrange(chunkOffset, min(chunkLength, remainingLength)));
+    }
+    return dataSpecs;
+  }
+
+  private static long ceilDivide(long dividend, long divisor) {
+    return (dividend - 1) / divisor + 1;
+  }
+
+  private boolean processActiveRunnables(
+      ArrayDeque<DataSpec> pendingDataSpecs, boolean blockUntilFinished)
+      throws IOException, InterruptedException {
+    boolean processedRunnable = false;
+    for (int i = getActiveRunnableCount() - 1; i >= 0; i--) {
+      DownloadRunnable downloadRunnable = getActiveRunnable(i);
+      if (blockUntilFinished || downloadRunnable.isDone()) {
+        processActiveRunnable(downloadRunnable, pendingDataSpecs);
+        processedRunnable = true;
+      }
+    }
+    return processedRunnable;
+  }
+
+  private void processActiveRunnable(
+      DownloadRunnable downloadRunnable, ArrayDeque<DataSpec> pendingDataSpecs)
+      throws IOException, InterruptedException {
+    try {
+      downloadRunnable.get();
+    } catch (CancellationException e) {
+      if (!isCanceled) {
+        throw e;
+      }
+    } catch (ExecutionException e) {
+      Throwable cause = checkNotNull(e.getCause());
+      if (cause instanceof PriorityTooLowException) {
+        pendingDataSpecs.addFirst(downloadRunnable.dataSpec);
+      } else if (cause instanceof IOException) {
+        throw (IOException) cause;
+      } else {
+        // The cause must be an uncaught Throwable type.
+        Util.sneakyThrow(cause);
+      }
+    } finally {
+      downloadRunnable.blockUntilFinished();
+      removeActiveRunnable(downloadRunnable);
+    }
+  }
+
+  private void addActiveRunnable(DownloadRunnable downloadRunnable) throws InterruptedException {
+    synchronized (activeRunnables) {
+      if (isCanceled) {
+        throw new InterruptedException();
+      }
+      activeRunnables.add(downloadRunnable);
+    }
+  }
+
+  private void removeActiveRunnable(DownloadRunnable downloadRunnable) {
+    synchronized (activeRunnables) {
+      activeRunnables.remove(downloadRunnable);
+    }
+  }
+
+  private int getActiveRunnableCount() {
+    synchronized (activeRunnables) {
+      return activeRunnables.size();
+    }
+  }
+
+  private DownloadRunnable getActiveRunnable(int index) {
+    synchronized (activeRunnables) {
+      return activeRunnables.get(index);
+    }
+  }
+
+  private void cancelActiveRunnables() {
+    synchronized (activeRunnables) {
+      for (int i = 0; i < activeRunnables.size(); i++) {
+        activeRunnables.get(i).cancel(/* interruptIfRunning= */ true);
+      }
+    }
+  }
+
+  private void waitAndClearActiveRunnables() {
+    while (true) {
+      @Nullable DownloadRunnable downloadRunnable;
+      synchronized (activeRunnables) {
+        if (activeRunnables.isEmpty()) {
+          return;
+        }
+        downloadRunnable = activeRunnables.get(activeRunnables.size() - 1);
+      }
+      downloadRunnable.blockUntilFinished();
+      removeActiveRunnable(downloadRunnable);
+    }
+  }
+
+  private final class DownloadRunnable extends RunnableFutureTask<Void, IOException> {
+    public final DataSpec dataSpec;
+    @Nullable private CacheWriter cacheWriter;
+
+    public DownloadRunnable(DataSpec dataSpec) {
+      this.dataSpec = dataSpec;
+    }
+
+    @Override
+    protected Void doWork() throws IOException {
+      cacheWriter =
+          new CacheWriter(
+              cacheDataSourceFactory.createDataSourceForDownloading(),
+              dataSpec,
+              /* temporaryBuffer= */ null,
+              (contentLength, bytesCached, newBytesCached) ->
+                  onProgress(dataSpec, contentLength, bytesCached, newBytesCached));
+      cacheWriter.cache();
+      return null;
+    }
+
+    @Override
+    protected void cancelWork() {
+      @Nullable CacheWriter cacheWriter = this.cacheWriter;
+      if (cacheWriter != null) {
+        cacheWriter.cancel();
+      }
+    }
   }
 }
