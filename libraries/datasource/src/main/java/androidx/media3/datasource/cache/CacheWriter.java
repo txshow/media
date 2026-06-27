@@ -178,15 +178,22 @@ public final class CacheWriter {
       }
     }
 
-    int totalBytesRead = 0;
+    long totalBytesRead = 0;
     try {
       if (isLastBlock && resolvedLength != C.LENGTH_UNSET) {
-        onRequestEndPosition(position + resolvedLength);
+        onRequestEndPosition(
+            position
+                + (length == C.LENGTH_UNSET ? resolvedLength : Math.min(resolvedLength, length)));
       }
       int bytesRead = 0;
-      while (bytesRead != C.RESULT_END_OF_INPUT) {
+      while (bytesRead != C.RESULT_END_OF_INPUT
+          && (length == C.LENGTH_UNSET || totalBytesRead < length)) {
         throwIfCanceled();
-        bytesRead = dataSource.read(temporaryBuffer, /* offset= */ 0, temporaryBuffer.length);
+        int bytesToRead =
+            length == C.LENGTH_UNSET
+                ? temporaryBuffer.length
+                : (int) Math.min((long) temporaryBuffer.length, length - totalBytesRead);
+        bytesRead = dataSource.read(temporaryBuffer, /* offset= */ 0, bytesToRead);
         if (bytesRead != C.RESULT_END_OF_INPUT) {
           onNewBytesCached(bytesRead);
           totalBytesRead += bytesRead;
