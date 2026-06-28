@@ -17,6 +17,7 @@ package androidx.media3.extractor.mp4;
 
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static org.junit.Assert.assertThrows;
 
 import androidx.media3.common.C;
 import androidx.media3.common.Metadata;
@@ -42,6 +43,8 @@ public final class BoxParserTest {
       Util.getBytesFromHexString(ATOM_HEADER + "00000008" + SAMPLE_COUNT + "01020304");
   private static final byte[] SIXTEEN_BIT_STZ2 =
       Util.getBytesFromHexString(ATOM_HEADER + "00000010" + SAMPLE_COUNT + "0001000200030004");
+  private static final byte[] DOLBY_VISION_CONFIGURATION_BOX =
+      Util.getBytesFromHexString("0000000D647663430100100D10");
 
   // Sample 'vexu' with 'eyes' containing 'stri' along with other optional boxes.
   private static final byte[] VEXU_DATA0 =
@@ -255,6 +258,51 @@ public final class BoxParserTest {
             BoxParser.parseCommonEncryptionSinfFromParent(
                 new ParsableByteArray(cencSinf), 0, cencSinf.length))
         .isNull();
+  }
+
+  @Test
+  public void parseDolbyVisionConfigBytes_withValidBox_returnsPayload() throws ParserException {
+    ParsableByteArray parent = new ParsableByteArray(DOLBY_VISION_CONFIGURATION_BOX);
+
+    byte[] configuration =
+        BoxParser.parseDolbyVisionConfigBytes(
+            parent,
+            /* childStartPosition= */ 0,
+            /* childAtomSize= */ DOLBY_VISION_CONFIGURATION_BOX.length,
+            /* sampleEntryEndPosition= */ DOLBY_VISION_CONFIGURATION_BOX.length);
+
+    assertThat(configuration).isEqualTo(Util.getBytesFromHexString("0100100D10"));
+  }
+
+  @Test
+  public void parseDolbyVisionConfigBytes_withBoxCrossingSampleEntry_throws() {
+    ParsableByteArray parent = new ParsableByteArray(DOLBY_VISION_CONFIGURATION_BOX);
+
+    assertThrows(
+        ParserException.class,
+        () ->
+            BoxParser.parseDolbyVisionConfigBytes(
+                parent,
+                /* childStartPosition= */ 0,
+                /* childAtomSize= */ DOLBY_VISION_CONFIGURATION_BOX.length,
+                /* sampleEntryEndPosition= */ DOLBY_VISION_CONFIGURATION_BOX.length - 1));
+  }
+
+  @Test
+  public void parseDolbyVisionConfigBytes_withTruncatedBox_throws() {
+    ParsableByteArray parent =
+        new ParsableByteArray(
+            DOLBY_VISION_CONFIGURATION_BOX,
+            /* limit= */ DOLBY_VISION_CONFIGURATION_BOX.length - 1);
+
+    assertThrows(
+        ParserException.class,
+        () ->
+            BoxParser.parseDolbyVisionConfigBytes(
+                parent,
+                /* childStartPosition= */ 0,
+                /* childAtomSize= */ DOLBY_VISION_CONFIGURATION_BOX.length,
+                /* sampleEntryEndPosition= */ DOLBY_VISION_CONFIGURATION_BOX.length));
   }
 
   @Test

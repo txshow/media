@@ -29,11 +29,18 @@ public final class DolbyVisionConfig {
    * @param data A {@link ParsableByteArray}, whose position is set to the start of the Dolby Vision
    *     configuration data to parse.
    * @return The {@link DolbyVisionConfig} corresponding to the configuration, or {@code null} if
-   *     the configuration isn't supported.
+   *     the configuration is invalid or unsupported.
    */
   @Nullable
   public static DolbyVisionConfig parse(ParsableByteArray data) {
-    data.skipBytes(2); // dv_version_major, dv_version_minor
+    if (data.bytesLeft() < 4) {
+      return null;
+    }
+    int majorVersion = data.readUnsignedByte();
+    data.skipBytes(1); // dv_version_minor
+    if (majorVersion != 1) {
+      return null;
+    }
     int profileData = data.readUnsignedByte();
     int dvProfile = (profileData >> 1);
     int dvLevel = ((profileData & 0x1) << 5) | ((data.readUnsignedByte() >> 3) & 0x1F);

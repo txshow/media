@@ -2729,6 +2729,9 @@ public class MatroskaExtractor implements Extractor {
         if (dolbyVisionConfig != null) {
           codecs = dolbyVisionConfig.codecs;
           mimeType = MimeTypes.VIDEO_DOLBY_VISION;
+          initializationData =
+              CodecSpecificDataUtil.setDolbyVisionCsd(
+                  initializationData, this.dolbyVisionConfigBytes);
         }
       }
 

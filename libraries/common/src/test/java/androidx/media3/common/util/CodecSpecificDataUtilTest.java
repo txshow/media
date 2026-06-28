@@ -30,6 +30,7 @@ import androidx.media3.test.utils.TestUtil;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.google.common.collect.ImmutableList;
 import java.nio.ByteBuffer;
+import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -421,6 +422,162 @@ public class CodecSpecificDataUtilTest {
             .setInitializationData(ImmutableList.of(badBytes))
             .build();
     assertThat(CodecSpecificDataUtil.isHagcTrack(formatWithWrongMimeType)).isFalse();
+  }
+
+  @Test
+  public void getDolbyVisionCompatibleBaseLayerMimeType_withProfile10Csd_usesCompatibilityId() {
+    Format incompatibleFormat = createDolbyVisionProfile10Format(/* compatibilityId= */ 0);
+
+    assertThat(
+            CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(incompatibleFormat))
+        .isNull();
+    for (int compatibilityId : new int[] {1, 2, 4}) {
+      Format compatibleFormat = createDolbyVisionProfile10Format(compatibilityId);
+      assertThat(CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(compatibleFormat))
+          .isEqualTo(MimeTypes.VIDEO_AV1);
+    }
+  }
+
+  @Test
+  public void getDolbyVisionCompatibleBaseLayerMimeType_withProfile10WithoutCsd_requiresColorInfo() {
+    Format unspecifiedFormat =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dav1.10.01")
+            .build();
+    Format compatibleFormat =
+        unspecifiedFormat
+            .buildUpon()
+            .setColorInfo(
+                new ColorInfo.Builder()
+                    .setColorSpace(C.COLOR_SPACE_BT2020)
+                    .setColorTransfer(C.COLOR_TRANSFER_ST2084)
+                    .setColorRange(C.COLOR_RANGE_LIMITED)
+                    .build())
+            .build();
+
+    assertThat(
+            CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(unspecifiedFormat))
+        .isNull();
+    assertThat(CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(compatibleFormat))
+        .isEqualTo(MimeTypes.VIDEO_AV1);
+  }
+
+  @Test
+  public void setDolbyVisionCsd_withNonDolbyVisionCsd2_preservesExistingEntry() {
+    byte[] csd0 = new byte[] {0};
+    byte[] csd1 = new byte[] {1};
+    // This resembles a Dolby Vision record by profile, but has an invalid major version.
+    byte[] existingCsd2 = new byte[] {0, 0, 8 << 1, 1};
+    byte[] dolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(/* profile= */ 8, /* level= */ 1);
+
+    List<byte[]> result =
+        CodecSpecificDataUtil.setDolbyVisionCsd(
+            ImmutableList.of(csd0, csd1, existingCsd2), dolbyVisionCsd);
+
+    assertThat(result).containsExactly(csd0, csd1, dolbyVisionCsd, existingCsd2).inOrder();
+  }
+
+  @Test
+  public void setDolbyVisionCsd_withExistingDolbyVisionCsd2_replacesExistingEntry() {
+    byte[] existingDolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(/* profile= */ 8, /* level= */ 1);
+    byte[] replacementDolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+            /* profile= */ 8,
+            /* level= */ 1,
+            /* blSignalCompatibilityId= */ 1,
+            /* mdCompression= */ -1);
+
+    List<byte[]> result =
+        CodecSpecificDataUtil.setDolbyVisionCsd(
+            ImmutableList.of(new byte[0], new byte[0], existingDolbyVisionCsd),
+            replacementDolbyVisionCsd);
+
+    assertThat(result).hasSize(3);
+    assertThat(result.get(2)).isSameInstanceAs(replacementDolbyVisionCsd);
+  }
+
+  @Test
+  public void setDolbyVisionCsd_withoutCsd2_padsAndAppends() {
+    byte[] csd0 = new byte[] {0};
+    byte[] dolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(/* profile= */ 8, /* level= */ 1);
+
+    List<byte[]> result =
+        CodecSpecificDataUtil.setDolbyVisionCsd(ImmutableList.of(csd0), dolbyVisionCsd);
+
+    assertThat(result).hasSize(3);
+    assertThat(result.get(0)).isSameInstanceAs(csd0);
+    assertThat(result.get(1)).isEmpty();
+    assertThat(result.get(2)).isSameInstanceAs(dolbyVisionCsd);
+  }
+
+  @Test
+  public void getDolbyVisionCsd_withShortOrMismatchedRecord_returnsNull() {
+    Format.Builder formatBuilder =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.08.01");
+    for (int length = 0; length < 4; length++) {
+      Format format =
+          formatBuilder
+              .setInitializationData(
+                  ImmutableList.of(new byte[0], new byte[0], new byte[length]))
+              .build();
+      assertThat(CodecSpecificDataUtil.getDolbyVisionCsd(format)).isNull();
+    }
+    byte[] profile7Csd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(/* profile= */ 7, /* level= */ 1);
+    Format mismatchedFormat =
+        formatBuilder
+            .setInitializationData(ImmutableList.of(new byte[0], new byte[0], profile7Csd))
+            .build();
+    assertThat(CodecSpecificDataUtil.getDolbyVisionCsd(mismatchedFormat)).isNull();
+  }
+
+  @Test
+  public void getDolbyVisionCompatibleBaseLayerMimeType_withProfile7_requiresBaseLayer() {
+    byte[] withBaseLayerCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(/* profile= */ 7, /* level= */ 1);
+    byte[] withoutBaseLayerCsd = withBaseLayerCsd.clone();
+    withoutBaseLayerCsd[3] &= ~0x01;
+    Format format =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.07.01")
+            .setInitializationData(
+                ImmutableList.of(new byte[0], new byte[0], withBaseLayerCsd))
+            .build();
+
+    assertThat(CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(format))
+        .isEqualTo(MimeTypes.VIDEO_H265);
+    Format formatWithoutBaseLayer =
+        format
+            .buildUpon()
+            .setInitializationData(
+                ImmutableList.of(new byte[0], new byte[0], withoutBaseLayerCsd))
+            .build();
+    assertThat(
+            CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(
+                formatWithoutBaseLayer))
+        .isNull();
+  }
+
+  private static Format createDolbyVisionProfile10Format(int compatibilityId) {
+    byte[] dolbyVisionCsd =
+        CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+            /* profile= */ 10,
+            /* level= */ 1,
+            compatibilityId,
+            /* mdCompression= */ -1);
+    return new Format.Builder()
+        .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+        .setCodecs("dav1.10.01")
+        .setInitializationData(
+            ImmutableList.of(new byte[0], new byte[0], dolbyVisionCsd))
+        .build();
   }
 
   private static void assertCodecProfileAndLevelForCodecsString(

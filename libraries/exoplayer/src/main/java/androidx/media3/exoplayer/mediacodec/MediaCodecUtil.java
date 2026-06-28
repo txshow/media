@@ -21,9 +21,11 @@ import static java.lang.Math.max;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.media.MediaCodec;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
 import android.media.MediaCodecList;
+import android.media.MediaFormat;
 import android.os.Build;
 import android.text.TextUtils;
 import android.util.Pair;
@@ -32,12 +34,12 @@ import androidx.annotation.GuardedBy;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
-import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.CodecSpecificDataUtil.MediaCodecProfileAndLevel;
 import androidx.media3.common.util.Log;
+import androidx.media3.common.util.MediaFormatUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.container.NalUnitUtil;
@@ -79,6 +81,27 @@ public final class MediaCodecUtil {
   private static int maxH264DecodableFrameSize = -1;
 
   private MediaCodecUtil() {}
+
+  static void verifyColorTransferRequest(
+      MediaCodec codec, @Nullable MediaFormat requestedFormat) {
+    if (SDK_INT < 31
+        || requestedFormat == null
+        || !requestedFormat.containsKey(MediaFormat.KEY_COLOR_TRANSFER_REQUEST)) {
+      return;
+    }
+    int requestedTransfer = requestedFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER_REQUEST);
+    int acceptedTransfer =
+        MediaFormatUtil.getInteger(
+            codec.getInputFormat(), MediaFormat.KEY_COLOR_TRANSFER_REQUEST, /* defaultValue= */ 0);
+    if (acceptedTransfer != requestedTransfer) {
+      throw new IllegalArgumentException(
+          "Decoder rejected color transfer request "
+              + requestedTransfer
+              + " (reported "
+              + acceptedTransfer
+              + ")");
+    }
+  }
 
   /**
    * Optional call to warm the codec cache for a given MIME type.
@@ -408,27 +431,11 @@ public final class MediaCodecUtil {
     }
     if (MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)) {
       // H.264/AVC, H.265/HEVC or AV1 decoders can decode the base layer of some DV profiles.
-      // This can't be done for profile CodecProfileLevel.DolbyVisionProfileDvheStn and profile
-      // CodecProfileLevel.DolbyVisionProfileDvheDtb because the first one is not backward
-      // compatible and the second one is deprecated and is not always backward compatible.
       @Nullable
-      MediaCodecProfileAndLevel codecProfileAndLevel =
-          CodecSpecificDataUtil.getMediaCodecProfileAndLevel(format);
-      if (codecProfileAndLevel != null && codecProfileAndLevel.isSupportableByMediaCodec()) {
-        int profile = codecProfileAndLevel.getProfile();
-        if (profile == CodecProfileLevel.DolbyVisionProfileDvheDtr
-            || profile == CodecProfileLevel.DolbyVisionProfileDvheSt) {
-          return Collections.singletonList(MimeTypes.VIDEO_H265);
-        } else if (profile == CodecProfileLevel.DolbyVisionProfileDvavSe) {
-          return Collections.singletonList(MimeTypes.VIDEO_H264);
-        } else if (profile == CodecProfileLevel.DolbyVisionProfileDvav110) {
-          if (format.colorInfo != null
-              && format.colorInfo.colorTransfer == C.COLOR_TRANSFER_ST2084
-              && format.colorInfo.colorRange == C.COLOR_RANGE_FULL) {
-            return Collections.emptyList();
-          }
-          return Collections.singletonList(MimeTypes.VIDEO_AV1);
-        }
+      String compatibleBaseLayerMimeType =
+          CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(format);
+      if (compatibleBaseLayerMimeType != null) {
+        return Collections.singletonList(compatibleBaseLayerMimeType);
       }
     }
     if (MimeTypes.VIDEO_MV_HEVC.equals(format.sampleMimeType)) {

@@ -23,6 +23,7 @@ import static android.media.MediaCodecInfo.CodecProfileLevel.AVCProfileBaseline;
 import static android.media.MediaCodecInfo.CodecProfileLevel.AVCProfileHigh;
 import static android.media.MediaCodecInfo.CodecProfileLevel.DolbyVisionLevelFhd30;
 import static android.media.MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheDtr;
+import static android.media.MediaCodecInfo.CodecProfileLevel.DolbyVisionProfileDvheStn;
 import static android.media.MediaCodecInfo.CodecProfileLevel.HEVCHighTierLevel51;
 import static android.media.MediaCodecInfo.CodecProfileLevel.HEVCMainTierLevel41;
 import static android.media.MediaCodecInfo.CodecProfileLevel.HEVCProfileMain;
@@ -68,6 +69,7 @@ import android.view.Surface;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
+import androidx.media3.common.DolbyVisionOutputPolicy;
 import androidx.media3.common.DrmInitData;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -75,6 +77,7 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ThrowingRunnable;
+import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.exoplayer.CodecParameters;
 import androidx.media3.exoplayer.DecoderCounters;
@@ -5244,6 +5247,15 @@ public class MediaCodecVideoRendererTest {
         new Format.Builder()
             .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
             .setCodecs("dvhe.08.01")
+            .setInitializationData(
+                ImmutableList.of(
+                    new byte[0],
+                    new byte[0],
+                    CodecSpecificDataUtil.buildDolbyVisionInitializationData(
+                        /* profile= */ 8,
+                        /* level= */ 1,
+                        /* blSignalCompatibilityId= */ 1,
+                        /* mdCompression= */ -1)))
             .build();
     Format formatDvavSeFallbackToH264 =
         new Format.Builder()
@@ -5464,6 +5476,83 @@ public class MediaCodecVideoRendererTest {
 
     assertThat(RendererCapabilities.getDecoderSupport(capabilitiesDvheDtr))
         .isEqualTo(RendererCapabilities.DECODER_SUPPORT_PRIMARY);
+  }
+
+  @Test
+  @Config(minSdk = 31)
+  public void supportsFormat_withProfile5AndUnsupportedNativeOutput_exceedsCapabilities()
+      throws Exception {
+    Format format =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.05.01")
+            .build();
+    AtomicBoolean tunnelingDecoderQueried = new AtomicBoolean();
+    MediaCodecSelector mediaCodecSelector =
+        (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) -> {
+          if (requiresTunnelingDecoder) {
+            tunnelingDecoderQueried.set(true);
+          }
+          return MimeTypes.VIDEO_DOLBY_VISION.equals(mimeType)
+              ? ImmutableList.of(
+                  MediaCodecInfo.newInstance(
+                      /* name= */ "dvhe-codec",
+                      /* mimeType= */ mimeType,
+                      /* codecMimeType= */ mimeType,
+                      /* capabilities= */
+                          createCodecCapabilities(
+                              DolbyVisionProfileDvheStn, DolbyVisionLevelFhd30),
+                      /* hardwareAccelerated= */ true,
+                      /* softwareOnly= */ false,
+                      /* vendor= */ true,
+                      /* forceDisableAdaptive= */ false,
+                      /* forceSecure= */ false))
+              : ImmutableList.of();
+        };
+    MediaCodecVideoRenderer renderer =
+        new MediaCodecVideoRenderer.Builder(ApplicationProvider.getApplicationContext())
+            .setMediaCodecSelector(mediaCodecSelector)
+            .setDolbyVisionOutputPolicy(DolbyVisionOutputPolicy.ASSUME_UNSUPPORTED)
+            .build();
+    renderer.init(/* index= */ 0, PlayerId.UNSET, Clock.DEFAULT);
+
+    @Capabilities int capabilities = renderer.supportsFormat(format);
+
+    assertThat(RendererCapabilities.getFormatSupport(capabilities))
+        .isEqualTo(C.FORMAT_EXCEEDS_CAPABILITIES);
+    assertThat(RendererCapabilities.getDecoderSupport(capabilities))
+        .isEqualTo(RendererCapabilities.DECODER_SUPPORT_PRIMARY);
+    assertThat(RendererCapabilities.getTunnelingSupport(capabilities))
+        .isEqualTo(RendererCapabilities.TUNNELING_NOT_SUPPORTED);
+    assertThat(tunnelingDecoderQueried.get()).isFalse();
+  }
+
+  @Test
+  @Config(minSdk = 31)
+  public void getMediaFormat_withProfile5AndUnsupportedNativeOutput_requestsSdrToneMapping() {
+    Format format =
+        new Format.Builder()
+            .setSampleMimeType(MimeTypes.VIDEO_DOLBY_VISION)
+            .setCodecs("dvhe.05.01")
+            .setWidth(1920)
+            .setHeight(1080)
+            .build();
+    MediaCodecVideoRenderer renderer =
+        new MediaCodecVideoRenderer.Builder(ApplicationProvider.getApplicationContext())
+            .setDolbyVisionOutputPolicy(DolbyVisionOutputPolicy.ASSUME_UNSUPPORTED)
+            .build();
+
+    MediaFormat mediaFormat =
+        renderer.getMediaFormat(
+            format,
+            MimeTypes.VIDEO_DOLBY_VISION,
+            new MediaCodecVideoRenderer.CodecMaxValues(1920, 1080, Format.NO_VALUE),
+            /* codecOperatingRate= */ -1,
+            /* deviceNeedsNoPostProcessWorkaround= */ false,
+            C.AUDIO_SESSION_ID_UNSET);
+
+    assertThat(mediaFormat.getInteger(MediaFormat.KEY_COLOR_TRANSFER_REQUEST))
+        .isEqualTo(MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
   }
 
   @Test
