@@ -16,7 +16,6 @@
 package androidx.media3.exoplayer.video;
 
 import static android.os.Build.VERSION.SDK_INT;
-import static android.view.Display.DEFAULT_DISPLAY;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_MAX_INPUT_SIZE_EXCEEDED;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_VIDEO_FRAME_RATE_CHANGED;
 import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_VIDEO_MAX_RESOLUTION_EXCEEDED;
@@ -36,7 +35,6 @@ import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.content.Context;
 import android.graphics.Point;
-import android.hardware.display.DisplayManager;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo.CodecCapabilities;
 import android.media.MediaCodecInfo.CodecProfileLevel;
@@ -47,13 +45,12 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
 import android.util.Pair;
-import android.view.Display;
-import android.view.Display.HdrCapabilities;
 import android.view.Surface;
 import androidx.annotation.CallSuper;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
+import androidx.media3.common.DolbyVisionOutputPolicy;
 import androidx.media3.common.DrmInitData;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
@@ -234,6 +231,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   private final PriorityQueue<Long> discardedDecoderInputBufferTimestamps;
   private final boolean enableMediaCodecBufferDecodeOnlyFlag;
   private final boolean enableDurationToProgressUs;
+  private final @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
 
   private @MonotonicNonNull CodecMaxValues codecMaxValues;
   private boolean codecNeedsSetOutputSurfaceWorkaround;
@@ -292,6 +290,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     private boolean enableMediaCodecBufferDecodeOnlyFlag;
     private boolean enableDurationToProgressUs;
     private long earlySchedulingThresholdUs;
+    private @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
 
     /**
      * Creates a new builder.
@@ -306,6 +305,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       this.parseAv1SampleDependencies = true;
       this.lateThresholdToDropDecoderInputUs = DEFAULT_LATE_THRESHOLD_TO_DROP_DECODER_INPUT_US;
       this.earlySchedulingThresholdUs = DEFAULT_EARLY_SCHEDULING_THRESHOLD_US;
+      this.dolbyVisionOutputPolicy = DolbyVisionOutputPolicy.AUTO;
     }
 
     /** Sets the {@link MediaCodecSelector decoder selector}. */
@@ -342,6 +342,27 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     @CanIgnoreReturnValue
     public Builder setEnableDecoderFallback(boolean enableDecoderFallback) {
       this.enableDecoderFallback = enableDecoderFallback;
+      return this;
+    }
+
+    /**
+     * Sets the policy used to decide whether native Dolby Vision output may be sent to the default
+     * display.
+     *
+     * <p>This policy controls display capability detection. Decoder profile, level, resolution and
+     * frame rate checks still apply. When native output is not allowed, formats with a compatible
+     * base layer are eligible for an alternative decoder. On API 31 and above, formats without a
+     * compatible base layer may use decoder tone mapping and are reported as {@link
+     * C#FORMAT_EXCEEDS_CAPABILITIES} when a Dolby Vision decoder is available, because support can
+     * only be verified after codec configuration. The default is {@link
+     * DolbyVisionOutputPolicy#AUTO}.
+     *
+     * @param dolbyVisionOutputPolicy The policy to use.
+     */
+    @CanIgnoreReturnValue
+    public Builder setDolbyVisionOutputPolicy(
+        @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy) {
+      this.dolbyVisionOutputPolicy = dolbyVisionOutputPolicy;
       return this;
     }
 
@@ -707,6 +728,7 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     }
     enableMediaCodecBufferDecodeOnlyFlag = builder.enableMediaCodecBufferDecodeOnlyFlag;
     enableDurationToProgressUs = builder.enableDurationToProgressUs;
+    dolbyVisionOutputPolicy = builder.dolbyVisionOutputPolicy;
     nextOutputBufferToProcessPresentationTimeUs = C.TIME_UNSET;
     scrubbingModeParameters = null;
   }
@@ -750,6 +772,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   /**
    * Returns the {@link Capabilities} of MediaCodecVideoRenderer for a given {@link Format}.
    *
+   * <p>Dolby Vision support is evaluated using {@link DolbyVisionOutputPolicy#AUTO}.
+   *
    * @param context A context.
    * @param mediaCodecSelector The decoder selector.
    * @param format The {@link Format} for which to check the {@code MediaCodecVideoRenderer}'s
@@ -760,17 +784,21 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
   public static @Capabilities int supportsFormat(
       Context context, MediaCodecSelector mediaCodecSelector, Format format)
       throws DecoderQueryException {
-    return supportsFormatInternal(context, mediaCodecSelector, format);
+    return supportsFormatInternal(
+        context, mediaCodecSelector, format, DolbyVisionOutputPolicy.AUTO);
   }
 
   @Override
   protected @Capabilities int supportsFormat(MediaCodecSelector mediaCodecSelector, Format format)
       throws DecoderQueryException {
-    return supportsFormatInternal(context, mediaCodecSelector, format);
+    return supportsFormatInternal(context, mediaCodecSelector, format, dolbyVisionOutputPolicy);
   }
 
   private static @Capabilities int supportsFormatInternal(
-      Context context, MediaCodecSelector mediaCodecSelector, Format format)
+      Context context,
+      MediaCodecSelector mediaCodecSelector,
+      Format format,
+      @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy)
       throws DecoderQueryException {
     String mimeType = format.sampleMimeType;
     if (!MimeTypes.isVideo(mimeType)) {
@@ -785,7 +813,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
             mediaCodecSelector,
             format,
             requiresSecureDecryption,
-            /* requiresTunnelingDecoder= */ false);
+            /* requiresTunnelingDecoder= */ false,
+            dolbyVisionOutputPolicy);
     if (requiresSecureDecryption && decoderInfos.isEmpty()) {
       // No secure decoders are available. Fall back to non-secure decoders.
       decoderInfos =
@@ -794,7 +823,8 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
               mediaCodecSelector,
               format,
               /* requiresSecureDecoder= */ false,
-              /* requiresTunnelingDecoder= */ false);
+              /* requiresTunnelingDecoder= */ false,
+              dolbyVisionOutputPolicy);
     }
     if (decoderInfos.isEmpty()) {
       return RendererCapabilities.create(C.FORMAT_UNSUPPORTED_SUBTYPE);
@@ -819,8 +849,15 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         }
       }
     }
+    boolean requiresDolbyVisionToneMapping =
+        shouldUseDolbyVisionToneMappingDecoder(context, format, dolbyVisionOutputPolicy);
+    // Decoder tone-mapping support is only reported after configure(). Until then, don't claim
+    // full support, so a capable fallback renderer can be selected before codec initialization.
     @C.FormatSupport
-    int formatSupport = isFormatSupported ? C.FORMAT_HANDLED : C.FORMAT_EXCEEDS_CAPABILITIES;
+    int formatSupport =
+        isFormatSupported && !requiresDolbyVisionToneMapping
+            ? C.FORMAT_HANDLED
+            : C.FORMAT_EXCEEDS_CAPABILITIES;
     @AdaptiveSupport
     int adaptiveSupport =
         decoderInfo.isSeamlessAdaptationSupported(format)
@@ -834,21 +871,21 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
     @DecoderSupport
     int decoderSupport = isPreferredDecoder ? DECODER_SUPPORT_PRIMARY : DECODER_SUPPORT_FALLBACK;
 
-    if (SDK_INT >= 26
-        && MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)
-        && !Api26.doesDisplaySupportDolbyVision(context)) {
+    if (shouldUseDolbyVisionFallbackDecoder(context, format, dolbyVisionOutputPolicy)
+        && !requiresDolbyVisionToneMapping) {
       decoderSupport = DECODER_SUPPORT_FALLBACK_MIMETYPE;
     }
 
     @TunnelingSupport int tunnelingSupport = TUNNELING_NOT_SUPPORTED;
-    if (isFormatSupported) {
+    if (formatSupport == C.FORMAT_HANDLED) {
       List<MediaCodecInfo> tunnelingDecoderInfos =
           getDecoderInfos(
               context,
               mediaCodecSelector,
               format,
               requiresSecureDecryption,
-              /* requiresTunnelingDecoder= */ true);
+              /* requiresTunnelingDecoder= */ true,
+              dolbyVisionOutputPolicy);
       if (!tunnelingDecoderInfos.isEmpty()) {
         MediaCodecInfo tunnelingDecoderInfo =
             MediaCodecUtil.getDecoderInfosSortedByFormatSupport(
@@ -875,7 +912,13 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       throws DecoderQueryException {
     return MediaCodecUtil.getDecoderInfosSortedByFormatSupport(
         context,
-        getDecoderInfos(context, mediaCodecSelector, format, requiresSecureDecoder, tunneling),
+        getDecoderInfos(
+            context,
+            mediaCodecSelector,
+            format,
+            requiresSecureDecoder,
+            tunneling,
+            dolbyVisionOutputPolicy),
         format);
   }
 
@@ -903,46 +946,37 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
       MediaCodecSelector mediaCodecSelector,
       Format format,
       boolean requiresSecureDecoder,
-      boolean requiresTunnelingDecoder)
+      boolean requiresTunnelingDecoder,
+      @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy)
       throws DecoderQueryException {
     if (format.sampleMimeType == null) {
       return ImmutableList.of();
     }
-    if (SDK_INT >= 26
-        && MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)
-        && !Api26.doesDisplaySupportDolbyVision(context)) {
-      List<MediaCodecInfo> alternativeDecoderInfos =
-          MediaCodecUtil.getAlternativeDecoderInfos(
-              mediaCodecSelector, format, requiresSecureDecoder, requiresTunnelingDecoder);
-      if (!alternativeDecoderInfos.isEmpty()) {
-        return alternativeDecoderInfos;
+    if (shouldUseDolbyVisionFallbackDecoder(context, format, dolbyVisionOutputPolicy)) {
+      if (shouldUseDolbyVisionToneMappingDecoder(context, format, dolbyVisionOutputPolicy)) {
+        return mediaCodecSelector.getDecoderInfos(
+            format.sampleMimeType, requiresSecureDecoder, requiresTunnelingDecoder);
       }
+      return MediaCodecUtil.getAlternativeDecoderInfos(
+          mediaCodecSelector, format, requiresSecureDecoder, requiresTunnelingDecoder);
     }
     return MediaCodecUtil.getDecoderInfosSoftMatch(
         mediaCodecSelector, format, requiresSecureDecoder, requiresTunnelingDecoder);
   }
 
-  @RequiresApi(26)
-  private static final class Api26 {
-    public static boolean doesDisplaySupportDolbyVision(Context context) {
-      DisplayManager displayManager =
-          (DisplayManager) context.getSystemService(Context.DISPLAY_SERVICE);
-      Display display =
-          (displayManager != null) ? displayManager.getDisplay(DEFAULT_DISPLAY) : null;
-      if (display == null || !display.isHdr()) {
-        return false;
-      }
-      HdrCapabilities hdrCapabilities = display.getHdrCapabilities();
-      if (hdrCapabilities == null) {
-        return false;
-      }
-      for (int hdrType : hdrCapabilities.getSupportedHdrTypes()) {
-        if (hdrType == Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION) {
-          return true;
-        }
-      }
+  private static boolean shouldUseDolbyVisionFallbackDecoder(
+      Context context, Format format, @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy) {
+    if (!MimeTypes.VIDEO_DOLBY_VISION.equals(format.sampleMimeType)) {
       return false;
     }
+    return !DolbyVisionOutputPolicy.isNativeOutputAllowed(context, dolbyVisionOutputPolicy);
+  }
+
+  private static boolean shouldUseDolbyVisionToneMappingDecoder(
+      Context context, Format format, @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy) {
+    return SDK_INT >= 31
+        && shouldUseDolbyVisionFallbackDecoder(context, format, dolbyVisionOutputPolicy)
+        && CodecSpecificDataUtil.getDolbyVisionCompatibleBaseLayerMimeType(format) == null;
   }
 
   @Override
@@ -2682,6 +2716,11 @@ public class MediaCodecVideoRenderer extends MediaCodecRenderer
         MediaFormatUtil.maybeSetInteger(
             mediaFormat, MediaFormat.KEY_PROFILE, codecProfileAndLevel.first);
       }
+    }
+    if (shouldUseDolbyVisionToneMappingDecoder(
+        context, format, dolbyVisionOutputPolicy)) {
+      mediaFormat.setInteger(
+          MediaFormat.KEY_COLOR_TRANSFER_REQUEST, MediaFormat.COLOR_TRANSFER_SDR_VIDEO);
     }
     // Set codec max values.
     mediaFormat.setInteger(MediaFormat.KEY_MAX_WIDTH, codecMaxValues.width);

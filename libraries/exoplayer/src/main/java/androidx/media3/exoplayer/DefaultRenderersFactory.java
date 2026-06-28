@@ -30,6 +30,7 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.media3.common.C;
+import androidx.media3.common.DolbyVisionOutputPolicy;
 import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ExperimentalApi;
 import androidx.media3.common.util.Log;
@@ -129,6 +130,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
   private long videoRendererEarlySchedulingThresholdUs;
   private boolean enableMediaCodecBufferDecodeOnlyFlag;
   private boolean enableMediaCodecVideoRendererDurationToProgressUs;
+  private @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
 
   /**
    * @param context A {@link Context}.
@@ -142,6 +144,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
     parseAv1SampleDependencies = true;
     lateThresholdToDropDecoderInputUs = DEFAULT_LATE_THRESHOLD_TO_DROP_DECODER_INPUT_US;
     videoRendererEarlySchedulingThresholdUs = DEFAULT_EARLY_SCHEDULING_THRESHOLD_US;
+    dolbyVisionOutputPolicy = DolbyVisionOutputPolicy.AUTO;
   }
 
   /**
@@ -215,6 +218,23 @@ public class DefaultRenderersFactory implements RenderersFactory {
   @CanIgnoreReturnValue
   public final DefaultRenderersFactory setEnableDecoderFallback(boolean enableDecoderFallback) {
     this.enableDecoderFallback = enableDecoderFallback;
+    return this;
+  }
+
+  /**
+   * Sets the policy used to decide whether native Dolby Vision output may be sent to the default
+   * display.
+   *
+   * <p>This policy controls display capability detection. Decoder capability checks and fallback
+   * eligibility still apply. The default is {@link DolbyVisionOutputPolicy#AUTO}.
+   *
+   * @param dolbyVisionOutputPolicy The policy to use.
+   * @return This factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public final DefaultRenderersFactory setDolbyVisionOutputPolicy(
+      @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy) {
+    this.dolbyVisionOutputPolicy = dolbyVisionOutputPolicy;
     return this;
   }
 
@@ -502,6 +522,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
             .setMediaCodecSelector(mediaCodecSelector)
             .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
             .setEnableDecoderFallback(enableDecoderFallback)
+            .setDolbyVisionOutputPolicy(dolbyVisionOutputPolicy)
             .setEventHandler(eventHandler)
             .setEventListener(eventListener)
             .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY)

@@ -61,6 +61,7 @@ public final class SynchronousMediaCodecAdapter implements MediaCodecAdapter {
         codec.configure(
             configuration.mediaFormat, configuration.surface, configuration.crypto, flags);
         TraceUtil.endSection();
+        MediaCodecUtil.verifyColorTransferRequest(codec, configuration.mediaFormat);
         TraceUtil.beginSection("startCodec");
         codec.start();
         TraceUtil.endSection();

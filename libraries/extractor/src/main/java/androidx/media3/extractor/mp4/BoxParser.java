@@ -1531,6 +1531,7 @@ public final class BoxParser {
     // The format of HDR static info is defined in CTA-861-G:2017, Table 45.
     @Nullable ByteBuffer hdrStaticInfo = null;
     @Nullable DolbyVisionConfig dolbyVisionConfig = null;
+    @Nullable byte[] dolbyVisionConfigBytes = null;
 
     while (childPosition - position < size) {
       parent.setPosition(childPosition);
@@ -1669,7 +1670,13 @@ public final class BoxParser {
       } else if (childAtomType == Mp4Box.TYPE_dvcC
           || childAtomType == Mp4Box.TYPE_dvvC
           || childAtomType == Mp4Box.TYPE_dvwC) {
-        dolbyVisionConfig = DolbyVisionConfig.parse(parent);
+        dolbyVisionConfigBytes =
+            parseDolbyVisionConfigBytes(
+                parent,
+                childStartPosition,
+                childAtomSize,
+                /* sampleEntryEndPosition= */ (long) position + size);
+        dolbyVisionConfig = DolbyVisionConfig.parse(new ParsableByteArray(dolbyVisionConfigBytes));
       } else if (childAtomType == Mp4Box.TYPE_vpcC) {
         ExtractorUtil.checkContainerInput(mimeType == null, /* message= */ null);
         mimeType = (atomType == Mp4Box.TYPE_vp08) ? MimeTypes.VIDEO_VP8 : MimeTypes.VIDEO_VP9;
@@ -1842,6 +1849,9 @@ public final class BoxParser {
     if (dolbyVisionConfig != null) {
       mimeType = MimeTypes.VIDEO_DOLBY_VISION;
       codecs = dolbyVisionConfig.codecs;
+      initializationData =
+          CodecSpecificDataUtil.setDolbyVisionCsd(
+              initializationData, checkNotNull(dolbyVisionConfigBytes));
     }
 
     // If the media type was not recognized, ignore the track.
@@ -1892,6 +1902,23 @@ public final class BoxParser {
     }
 
     out.format = formatBuilder.build();
+  }
+
+  /* package */ static byte[] parseDolbyVisionConfigBytes(
+      ParsableByteArray parent,
+      int childStartPosition,
+      int childAtomSize,
+      long sampleEntryEndPosition)
+      throws ParserException {
+    long configurationStartPosition = (long) childStartPosition + Mp4Box.HEADER_SIZE;
+    long configurationEndPosition = (long) childStartPosition + childAtomSize;
+    ExtractorUtil.checkContainerInput(
+        childAtomSize >= Mp4Box.HEADER_SIZE + 4
+            && configurationEndPosition <= sampleEntryEndPosition
+            && configurationEndPosition <= parent.limit(),
+        "Invalid Dolby Vision configuration");
+    return Arrays.copyOfRange(
+        parent.getData(), (int) configurationStartPosition, (int) configurationEndPosition);
   }
 
   /**

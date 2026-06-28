@@ -17,7 +17,6 @@
 package androidx.media3.exoplayer.mediacodec;
 
 import static android.os.Build.VERSION.SDK_INT;
-import static java.lang.annotation.ElementType.TYPE_USE;
 
 import android.media.MediaCodec;
 import android.media.MediaCrypto;
@@ -28,7 +27,6 @@ import android.os.HandlerThread;
 import android.os.PersistableBundle;
 import android.view.Surface;
 import androidx.annotation.ChecksSdkIntAtLeast;
-import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
@@ -39,10 +37,6 @@ import androidx.media3.common.util.TraceUtil;
 import androidx.media3.decoder.CryptoInfo;
 import com.google.common.base.Supplier;
 import java.io.IOException;
-import java.lang.annotation.Documented;
-import java.lang.annotation.Retention;
-import java.lang.annotation.RetentionPolicy;
-import java.lang.annotation.Target;
 import java.nio.ByteBuffer;
 import java.util.List;
 
@@ -167,23 +161,15 @@ import java.util.List;
     }
   }
 
-  @Documented
-  @Retention(RetentionPolicy.SOURCE)
-  @Target(TYPE_USE)
-  @IntDef({STATE_CREATED, STATE_INITIALIZED, STATE_SHUT_DOWN})
-  private @interface State {}
-
-  private static final int STATE_CREATED = 0;
-  private static final int STATE_INITIALIZED = 1;
-  private static final int STATE_SHUT_DOWN = 2;
-
   private final MediaCodec codec;
   private final AsynchronousMediaCodecCallback asynchronousMediaCodecCallback;
   private final MediaCodecBufferEnqueuer bufferEnqueuer;
   @Nullable private final LoudnessCodecController loudnessCodecController;
 
+  private boolean callbackInitialized;
+  private boolean bufferEnqueuerStarted;
+  private boolean codecStarted;
   private boolean codecReleased;
-  private @State int state;
 
   private AsynchronousMediaCodecAdapter(
       MediaCodec codec,
@@ -194,7 +180,6 @@ import java.util.List;
     this.asynchronousMediaCodecCallback = new AsynchronousMediaCodecCallback(callbackThread);
     this.bufferEnqueuer = bufferEnqueuer;
     this.loudnessCodecController = loudnessCodecController;
-    this.state = STATE_CREATED;
   }
 
   private void initialize(
@@ -203,17 +188,20 @@ import java.util.List;
       @Nullable MediaCrypto crypto,
       int flags) {
     asynchronousMediaCodecCallback.initialize(codec);
+    callbackInitialized = true;
     TraceUtil.beginSection("configureCodec");
     codec.configure(mediaFormat, surface, crypto, flags);
     TraceUtil.endSection();
+    MediaCodecUtil.verifyColorTransferRequest(codec, mediaFormat);
     bufferEnqueuer.start();
+    bufferEnqueuerStarted = true;
     TraceUtil.beginSection("startCodec");
     codec.start();
+    codecStarted = true;
     TraceUtil.endSection();
     if (SDK_INT >= 35 && loudnessCodecController != null) {
       loudnessCodecController.addMediaCodec(codec);
     }
-    state = STATE_INITIALIZED;
   }
 
   @Override
@@ -298,11 +286,17 @@ import java.util.List;
   @Override
   public void release() {
     try {
-      if (state == STATE_INITIALIZED) {
-        bufferEnqueuer.shutdown();
-        asynchronousMediaCodecCallback.shutdown();
+      try {
+        if (bufferEnqueuerStarted) {
+          bufferEnqueuer.shutdown();
+          bufferEnqueuerStarted = false;
+        }
+      } finally {
+        if (callbackInitialized) {
+          asynchronousMediaCodecCallback.shutdown();
+          callbackInitialized = false;
+        }
       }
-      state = STATE_SHUT_DOWN;
     } finally {
       if (!codecReleased) {
         try {
@@ -310,8 +304,9 @@ import java.util.List;
           // MediaCodec.release() returns too early before fully detaching a Surface, and a
           // subsequent MediaCodec.configure() call using the same Surface then fails. See
           // https://github.com/google/ExoPlayer/issues/8696 and b/191966399.
-          if (SDK_INT >= 30 && SDK_INT < 33) {
+          if (codecStarted && SDK_INT >= 30 && SDK_INT < 33) {
             codec.stop();
+            codecStarted = false;
           }
         } finally {
           if (SDK_INT >= 35 && loudnessCodecController != null) {
