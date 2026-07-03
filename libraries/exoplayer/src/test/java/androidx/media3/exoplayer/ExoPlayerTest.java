@@ -91,6 +91,8 @@ import static org.robolectric.Shadows.shadowOf;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Point;
+import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
@@ -100,6 +102,7 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Pair;
 import android.view.Surface;
+import android.view.SurfaceHolder;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AdPlaybackState;
 import androidx.media3.common.AudioAttributes;
@@ -130,6 +133,7 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.HandlerWrapper;
 import androidx.media3.common.util.NullableType;
+import androidx.media3.common.util.Size;
 import androidx.media3.common.util.SystemClock;
 import androidx.media3.common.util.Util;
 import androidx.media3.datasource.TransferListener;
@@ -498,6 +502,67 @@ public final class ExoPlayerTest {
             new VideoSize(1280, 720), // When onVideoSizeChanged() called
             new VideoSize(1280, 720)) // In STATE_ENDED
         .inOrder();
+  }
+
+  @Test
+  public void playVideo_withDirectSurfaceHolder_keepsBufferSizeAcrossVideoReset() throws Exception {
+    ExoPlayer player = parameterizeTestExoPlayerBuilder(new TestExoPlayerBuilder(context)).build();
+    SurfaceTexture surfaceTexture = new SurfaceTexture(/* texName= */ 0);
+    Surface surface = new Surface(surfaceTexture);
+    SurfaceHolder surfaceHolder = mock(SurfaceHolder.class);
+    when(surfaceHolder.getSurface()).thenReturn(surface);
+    when(surfaceHolder.getSurfaceFrame()).thenReturn(new Rect(0, 0, 640, 360));
+    player.setVideoSurfaceHolder(surfaceHolder);
+    verify(surfaceHolder).setFixedSize(640, 360);
+    Timeline timeline = new FakeTimeline(/* windowCount= */ 1);
+    player.setMediaSources(
+        ImmutableList.of(
+            new FakeMediaSource(timeline, ExoPlayerTestRunner.VIDEO_FORMAT),
+            new FakeMediaSource(timeline, ExoPlayerTestRunner.AUDIO_FORMAT),
+            new FakeMediaSource(timeline, ExoPlayerTestRunner.VIDEO_FORMAT)));
+    player.prepare();
+    player.play();
+
+    advance(player).untilState(Player.STATE_ENDED);
+
+    // The audio item reports VideoSize.UNKNOWN between the two video items. Keep the last valid
+    // buffer size across that reset instead of restoring the holder to its layout size.
+    verify(surfaceHolder, never()).setSizeFromLayout();
+    player.clearVideoSurfaceHolder(surfaceHolder);
+    verify(surfaceHolder).setSizeFromLayout();
+    player.release();
+    surface.release();
+    surfaceTexture.release();
+  }
+
+  @Test
+  public void getDisplaySizedSurfaceBufferSize_videoLargerThanDisplay_limitsToDisplay() {
+    Size surfaceBufferSize =
+        ExoPlayerImpl.getDisplaySizedSurfaceBufferSize(
+            new VideoSize(/* width= */ 3840, /* height= */ 2160),
+            new Point(/* x= */ 2400, /* y= */ 1080));
+
+    assertThat(surfaceBufferSize).isEqualTo(new Size(/* width= */ 1920, /* height= */ 1080));
+  }
+
+  @Test
+  public void getDisplaySizedSurfaceBufferSize_videoSmallerThanDisplay_scalesToDisplayBounds() {
+    Size surfaceBufferSize =
+        ExoPlayerImpl.getDisplaySizedSurfaceBufferSize(
+            new VideoSize(/* width= */ 1280, /* height= */ 720),
+            new Point(/* x= */ 2400, /* y= */ 1080));
+
+    assertThat(surfaceBufferSize).isEqualTo(new Size(/* width= */ 1920, /* height= */ 1080));
+  }
+
+  @Test
+  public void getDisplaySizedSurfaceBufferSize_portraitVideo_preservesVideoAspectRatio() {
+    Size surfaceBufferSize =
+        ExoPlayerImpl.getDisplaySizedSurfaceBufferSize(
+            new VideoSize(/* width= */ 1080, /* height= */ 1920),
+            new Point(/* x= */ 2400, /* y= */ 1080));
+
+    assertThat(surfaceBufferSize).isEqualTo(new Size(/* width= */ 608, /* height= */ 1080));
   }
 
   /** Tests playback of periods with very short duration. */

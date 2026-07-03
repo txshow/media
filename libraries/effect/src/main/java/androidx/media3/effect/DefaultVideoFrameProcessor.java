@@ -160,6 +160,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
       private GlTextureProducer.@MonotonicNonNull Listener textureOutputListener;
       private int textureOutputCapacity;
       private boolean enableReplayableCache;
+      private boolean adjustOutputSizeToSurface;
       private boolean requireRegisteringAllInputFrames;
       private boolean experimentalAdjustSurfaceTextureTransformationMatrix;
       private boolean experimentalRepeatInputBitmapWithoutResampling;
@@ -167,6 +168,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
       /** Creates an instance. */
       public Builder() {
         sdrWorkingColorSpace = WORKING_COLOR_SPACE_DEFAULT;
+        adjustOutputSizeToSurface = true;
         requireRegisteringAllInputFrames = true;
         experimentalAdjustSurfaceTextureTransformationMatrix = true;
         experimentalRepeatInputBitmapWithoutResampling = true;
@@ -179,6 +181,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
         textureOutputListener = factory.textureOutputListener;
         textureOutputCapacity = factory.textureOutputCapacity;
         enableReplayableCache = factory.enableReplayableCache;
+        adjustOutputSizeToSurface = factory.adjustOutputSizeToSurface;
         requireRegisteringAllInputFrames = !factory.repeatLastRegisteredFrame;
         experimentalAdjustSurfaceTextureTransformationMatrix =
             factory.experimentalAdjustSurfaceTextureTransformationMatrix;
@@ -286,6 +289,19 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
       }
 
       /**
+       * Sets whether the output frame size is adjusted to the output surface dimensions.
+       *
+       * <p>The default value is {@code true}.
+       *
+       * @param adjustOutputSizeToSurface Whether to adjust the output frame size.
+       */
+      @CanIgnoreReturnValue
+      public Builder setOutputSurfaceSizeAdjustmentEnabled(boolean adjustOutputSizeToSurface) {
+        this.adjustOutputSizeToSurface = adjustOutputSizeToSurface;
+        return this;
+      }
+
+      /**
        * Sets texture output settings.
        *
        * <p>If set, the {@link VideoFrameProcessor} will output to OpenGL textures, accessible via
@@ -363,6 +379,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
             textureOutputListener,
             textureOutputCapacity,
             enableReplayableCache,
+            adjustOutputSizeToSurface,
             experimentalAdjustSurfaceTextureTransformationMatrix,
             experimentalRepeatInputBitmapWithoutResampling);
       }
@@ -375,6 +392,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
     @Nullable private final GlTextureProducer.Listener textureOutputListener;
     private final int textureOutputCapacity;
     private final boolean enableReplayableCache;
+    private final boolean adjustOutputSizeToSurface;
     private final boolean experimentalAdjustSurfaceTextureTransformationMatrix;
     private final boolean experimentalRepeatInputBitmapWithoutResampling;
 
@@ -386,6 +404,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
         @Nullable GlTextureProducer.Listener textureOutputListener,
         int textureOutputCapacity,
         boolean enableReplayableCache,
+        boolean adjustOutputSizeToSurface,
         boolean experimentalAdjustSurfaceTextureTransformationMatrix,
         boolean experimentalRepeatInputBitmapWithoutResampling) {
       this.sdrWorkingColorSpace = sdrWorkingColorSpace;
@@ -395,6 +414,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
       this.textureOutputListener = textureOutputListener;
       this.textureOutputCapacity = textureOutputCapacity;
       this.enableReplayableCache = enableReplayableCache;
+      this.adjustOutputSizeToSurface = adjustOutputSizeToSurface;
       this.experimentalAdjustSurfaceTextureTransformationMatrix =
           experimentalAdjustSurfaceTextureTransformationMatrix;
       this.experimentalRepeatInputBitmapWithoutResampling =
@@ -467,6 +487,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
                       textureOutputListener,
                       textureOutputCapacity,
                       repeatLastRegisteredFrame,
+                      adjustOutputSizeToSurface,
                       experimentalAdjustSurfaceTextureTransformationMatrix,
                       experimentalRepeatInputBitmapWithoutResampling));
 
@@ -948,6 +969,7 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
       @Nullable GlTextureProducer.Listener textureOutputListener,
       int textureOutputCapacity,
       boolean repeatLastRegisteredFrame,
+      boolean adjustOutputSizeToSurface,
       boolean experimentalAdjustSurfaceTextureTransformationMatrix,
       boolean experimentalRepeatInputBitmapWithoutResampling)
       throws GlUtil.GlException, VideoFrameProcessingException {
@@ -998,7 +1020,8 @@ public final class DefaultVideoFrameProcessor implements VideoFrameProcessor {
             textureOutputListener,
             textureOutputCapacity,
             sdrWorkingColorSpace,
-            renderFramesAutomatically);
+            renderFramesAutomatically,
+            adjustOutputSizeToSurface);
 
     return new DefaultVideoFrameProcessor(
         context,

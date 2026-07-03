@@ -99,6 +99,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   @Nullable private final GlTextureProducer.Listener textureOutputListener;
   private final @WorkingColorSpace int sdrWorkingColorSpace;
   private final boolean renderFramesAutomatically;
+  private final boolean adjustOutputSizeToSurface;
 
   private int inputWidth;
   private int inputHeight;
@@ -132,7 +133,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       @Nullable GlTextureProducer.Listener textureOutputListener,
       int textureOutputCapacity,
       @WorkingColorSpace int sdrWorkingColorSpace,
-      boolean renderFramesAutomatically) {
+      boolean renderFramesAutomatically,
+      boolean adjustOutputSizeToSurface) {
     this.context = context;
     this.matrixTransformations = new ArrayList<>();
     this.rgbMatrices = new ArrayList<>();
@@ -146,6 +148,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     this.textureOutputListener = textureOutputListener;
     this.sdrWorkingColorSpace = sdrWorkingColorSpace;
     this.renderFramesAutomatically = renderFramesAutomatically;
+    this.adjustOutputSizeToSurface = adjustOutputSizeToSurface;
 
     inputListener = new InputListener() {};
     availableFrames = new ConcurrentLinkedQueue<>();
@@ -417,6 +420,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       return;
     }
 
+    boolean outputSizeChanged =
+        this.outputSurfaceInfo != null
+            && outputSurfaceInfo != null
+            && (this.outputSurfaceInfo.width != outputSurfaceInfo.width
+                || this.outputSurfaceInfo.height != outputSurfaceInfo.height);
     if (this.outputSurfaceInfo != null
         && (outputSurfaceInfo == null
             || !this.outputSurfaceInfo.surface.equals(outputSurfaceInfo.surface))) {
@@ -432,9 +440,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     outputSurfaceInfoChanged =
         this.outputSurfaceInfo == null
             || outputSurfaceInfo == null
-            || this.outputSurfaceInfo.width != outputSurfaceInfo.width
-            || this.outputSurfaceInfo.height != outputSurfaceInfo.height
-            || this.outputSurfaceInfo.orientationDegrees != outputSurfaceInfo.orientationDegrees;
+            || this.outputSurfaceInfo.orientationDegrees != outputSurfaceInfo.orientationDegrees
+            || (adjustOutputSizeToSurface && outputSizeChanged);
     this.outputSurfaceInfo = outputSurfaceInfo;
   }
 
@@ -640,9 +647,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
               .setRotationDegrees(outputOrientationDegrees)
               .build());
     }
-    matrixTransformationListBuilder.add(
-        Presentation.createForWidthAndHeight(
-            outputWidth, outputHeight, Presentation.LAYOUT_SCALE_TO_FIT));
+    if (adjustOutputSizeToSurface) {
+      matrixTransformationListBuilder.add(
+          Presentation.createForWidthAndHeight(
+              outputWidth, outputHeight, Presentation.LAYOUT_SCALE_TO_FIT));
+    }
 
     DefaultShaderProgram defaultShaderProgram;
     ImmutableList<GlMatrixTransformation> expandedMatrixTransformations =
@@ -656,7 +665,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
             sdrWorkingColorSpace);
 
     Size outputSize = defaultShaderProgram.configure(inputWidth, inputHeight);
-    if (outputSurfaceInfo != null) {
+    if (outputSurfaceInfo != null && adjustOutputSizeToSurface) {
       SurfaceInfo outputSurfaceInfo = checkNotNull(this.outputSurfaceInfo);
       checkState(outputSize.getWidth() == outputSurfaceInfo.width);
       checkState(outputSize.getHeight() == outputSurfaceInfo.height);

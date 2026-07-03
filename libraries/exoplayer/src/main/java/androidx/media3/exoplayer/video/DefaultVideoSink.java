@@ -197,8 +197,10 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 
   @Override
   public void setOutputSurfaceInfo(Surface outputSurface, Size outputResolution) {
-    this.outputSurface = outputSurface;
-    videoFrameReleaseControl.setOutputSurface(outputSurface);
+    if (this.outputSurface != outputSurface) {
+      this.outputSurface = outputSurface;
+      videoFrameReleaseControl.setOutputSurface(outputSurface);
+    }
   }
 
   @Override

@@ -45,6 +45,8 @@ import static java.lang.Math.min;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.content.res.Configuration;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.media.AudioDeviceInfo;
@@ -149,6 +151,7 @@ import java.util.function.IntConsumer;
   }
 
   private static final String TAG = "ExoPlayerImpl";
+  private static final float MAX_SURFACE_BUFFER_SIZE_CHANGE_FRACTION = 0.01f;
 
   /**
    * This empty track selector result can only be used for {@link PlaybackInfo#trackSelectorResult}
@@ -219,6 +222,8 @@ import java.util.function.IntConsumer;
   @Nullable private SurfaceHolder surfaceHolder;
   @Nullable private SphericalGLSurfaceView sphericalGLSurfaceView;
   private boolean surfaceHolderSurfaceIsVideoOutput;
+  private Size confirmedSurfaceBufferSize = Size.UNKNOWN;
+  private Size pendingSurfaceBufferSize = Size.UNKNOWN;
   @Nullable private TextureView textureView;
   private @C.VideoScalingMode int videoScalingMode;
   private @C.VideoChangeFrameRateStrategy int videoChangeFrameRateStrategy;
@@ -1526,6 +1531,7 @@ import java.util.function.IntConsumer;
       this.surfaceHolderSurfaceIsVideoOutput = true;
       this.surfaceHolder = surfaceHolder;
       surfaceHolder.addCallback(componentListener);
+      updateVideoOutputSurfaceSize(videoSize);
       Surface surface = surfaceHolder.getSurface();
       if (surface != null && surface.isValid()) {
         setVideoOutputInternal(surface);
@@ -3035,6 +3041,7 @@ import java.util.function.IntConsumer;
     }
     if (surfaceHolder != null) {
       surfaceHolder.removeCallback(componentListener);
+      resetVideoOutputSurfaceBufferSize();
       surfaceHolder = null;
     }
   }
@@ -3099,6 +3106,105 @@ import java.util.function.IntConsumer;
       sendRendererMessage(
           TRACK_TYPE_VIDEO, MSG_SET_VIDEO_OUTPUT_RESOLUTION, new Size(width, height));
     }
+  }
+
+  private void updateVideoOutputSurfaceSize(VideoSize videoSize) {
+    if (!surfaceHolderSurfaceIsVideoOutput || surfaceHolder == null) {
+      return;
+    }
+    Size surfaceBufferSize;
+    if (videoSize.equals(VideoSize.UNKNOWN) || videoSize.width <= 0 || videoSize.height <= 0) {
+      // Keep the current buffer fixed across transient renderer resets until the next valid size.
+      if (hasFixedSurfaceBufferSize()) {
+        return;
+      }
+      surfaceBufferSize = getCurrentSurfaceBufferSize();
+    } else {
+      surfaceBufferSize = getDisplaySizedSurfaceBufferSize(videoSize, getOrientedDisplaySize());
+      if (!surfaceBufferSize.equals(Size.UNKNOWN)) {
+        Size currentSurfaceBufferSize =
+            confirmedSurfaceBufferSize.equals(Size.UNKNOWN)
+                ? getCurrentSurfaceBufferSize()
+                : confirmedSurfaceBufferSize;
+        if (areSurfaceBufferSizesEquivalent(surfaceBufferSize, currentSurfaceBufferSize)) {
+          surfaceBufferSize = currentSurfaceBufferSize;
+        }
+      }
+    }
+    if (surfaceBufferSize.equals(Size.UNKNOWN)
+        || surfaceBufferSize.equals(pendingSurfaceBufferSize)
+        || (pendingSurfaceBufferSize.equals(Size.UNKNOWN)
+            && surfaceBufferSize.equals(confirmedSurfaceBufferSize))) {
+      return;
+    }
+    pendingSurfaceBufferSize = surfaceBufferSize;
+    surfaceHolder.setFixedSize(surfaceBufferSize.getWidth(), surfaceBufferSize.getHeight());
+  }
+
+  private Size getCurrentSurfaceBufferSize() {
+    Rect surfaceFrame = checkNotNull(surfaceHolder).getSurfaceFrame();
+    int width = surfaceFrame.width();
+    int height = surfaceFrame.height();
+    if (width <= 0 || height <= 0) {
+      return Size.UNKNOWN;
+    }
+    return new Size(width, height);
+  }
+
+  private Point getOrientedDisplaySize() {
+    Point displaySize = Util.getCurrentDisplayModeSize(applicationContext);
+    int orientation = applicationContext.getResources().getConfiguration().orientation;
+    boolean displayIsPortrait = displaySize.x < displaySize.y;
+    if ((orientation == Configuration.ORIENTATION_LANDSCAPE && displayIsPortrait)
+        || (orientation == Configuration.ORIENTATION_PORTRAIT && !displayIsPortrait)) {
+      return new Point(displaySize.y, displaySize.x);
+    }
+    return displaySize;
+  }
+
+  /* package */ static Size getDisplaySizedSurfaceBufferSize(
+      VideoSize videoSize, Point displaySize) {
+    if (videoSize.width <= 0
+        || videoSize.height <= 0
+        || videoSize.pixelWidthHeightRatio <= 0
+        || displaySize.x <= 0
+        || displaySize.y <= 0) {
+      return Size.UNKNOWN;
+    }
+    double videoAspectRatio =
+        (double) videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height;
+    double displayAspectRatio = (double) displaySize.x / displaySize.y;
+    if (videoAspectRatio >= displayAspectRatio) {
+      return new Size(
+          displaySize.x,
+          max(1, min(displaySize.y, (int) Math.round(displaySize.x / videoAspectRatio))));
+    }
+    return new Size(
+        max(1, min(displaySize.x, (int) Math.round(displaySize.y * videoAspectRatio))),
+        displaySize.y);
+  }
+
+  private static boolean areSurfaceBufferSizesEquivalent(Size first, Size second) {
+    if (first.equals(Size.UNKNOWN) || second.equals(Size.UNKNOWN)) {
+      return false;
+    }
+    float widthChange = Math.abs((float) first.getWidth() / second.getWidth() - 1);
+    float heightChange = Math.abs((float) first.getHeight() / second.getHeight() - 1);
+    return widthChange <= MAX_SURFACE_BUFFER_SIZE_CHANGE_FRACTION
+        && heightChange <= MAX_SURFACE_BUFFER_SIZE_CHANGE_FRACTION;
+  }
+
+  private boolean hasFixedSurfaceBufferSize() {
+    return !confirmedSurfaceBufferSize.equals(Size.UNKNOWN)
+        || !pendingSurfaceBufferSize.equals(Size.UNKNOWN);
+  }
+
+  private void resetVideoOutputSurfaceBufferSize() {
+    if (surfaceHolder != null && hasFixedSurfaceBufferSize()) {
+      surfaceHolder.setSizeFromLayout();
+    }
+    confirmedSurfaceBufferSize = Size.UNKNOWN;
+    pendingSurfaceBufferSize = Size.UNKNOWN;
   }
 
   private void maybeUpdatePlaybackSuppressionReason() {
@@ -3435,6 +3541,7 @@ import java.util.function.IntConsumer;
     @Override
     public void onVideoSizeChanged(VideoSize newVideoSize) {
       videoSize = newVideoSize;
+      updateVideoOutputSurfaceSize(newVideoSize);
       listeners.sendEvent(
           EVENT_VIDEO_SIZE_CHANGED, listener -> listener.onVideoSizeChanged(newVideoSize));
     }
@@ -3602,6 +3709,13 @@ import java.util.function.IntConsumer;
 
     @Override
     public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+      if (surfaceHolderSurfaceIsVideoOutput
+          && holder == surfaceHolder
+          && hasFixedSurfaceBufferSize()) {
+        confirmedSurfaceBufferSize =
+            width > 0 && height > 0 ? new Size(width, height) : Size.UNKNOWN;
+        pendingSurfaceBufferSize = Size.UNKNOWN;
+      }
       maybeNotifySurfaceSizeChanged(width, height);
     }
 
