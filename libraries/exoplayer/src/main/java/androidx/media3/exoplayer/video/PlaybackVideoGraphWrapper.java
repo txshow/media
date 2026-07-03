@@ -117,6 +117,7 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
     private Clock clock;
     private boolean built;
     private boolean enableReplayableCache;
+    private boolean adjustOutputSizeToSurface;
     private long lateThresholdToDropInputUs;
     private VideoFrameReleaseEarlyTimeForecaster videoFrameReleaseEarlyTimeForecaster;
 
@@ -124,6 +125,7 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
     public Builder(Context context, VideoFrameReleaseControl videoFrameReleaseControl) {
       this.context = context.getApplicationContext();
       this.videoFrameReleaseControl = videoFrameReleaseControl;
+      adjustOutputSizeToSurface = true;
       this.lateThresholdToDropInputUs = LATE_US_TO_DROP_INPUT_FRAME;
       videoFrameReleaseEarlyTimeForecaster =
           new VideoFrameReleaseEarlyTimeForecaster(/* playbackSpeed= */ 1f);
@@ -205,6 +207,19 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
     }
 
     /**
+     * Sets whether the output frame size is adjusted to the output surface dimensions.
+     *
+     * <p>The default value is {@code true}.
+     *
+     * @param adjustOutputSizeToSurface Whether to adjust the output frame size.
+     */
+    @CanIgnoreReturnValue
+    /* package */ Builder setOutputSurfaceSizeAdjustmentEnabled(boolean adjustOutputSizeToSurface) {
+      this.adjustOutputSizeToSurface = adjustOutputSizeToSurface;
+      return this;
+    }
+
+    /**
      * Sets the late threshold for input frames, in microseconds, after which frames may be dropped
      * before applying effects.
      *
@@ -234,7 +249,9 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
       checkState(!built);
 
       if (videoGraphFactory == null) {
-        videoGraphFactory = new ReflectiveSingleInputVideoGraphFactory(enableReplayableCache);
+        videoGraphFactory =
+            new ReflectiveSingleInputVideoGraphFactory(
+                enableReplayableCache, adjustOutputSizeToSurface);
       }
       PlaybackVideoGraphWrapper playbackVideoGraphWrapper = new PlaybackVideoGraphWrapper(this);
       built = true;
@@ -1253,9 +1270,11 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
 
     private final VideoFrameProcessor.Factory videoFrameProcessorFactory;
 
-    public ReflectiveSingleInputVideoGraphFactory(boolean enableReplayableCache) {
+    public ReflectiveSingleInputVideoGraphFactory(
+        boolean enableReplayableCache, boolean adjustOutputSizeToSurface) {
       this.videoFrameProcessorFactory =
-          new ReflectiveDefaultVideoFrameProcessorFactory(enableReplayableCache);
+          new ReflectiveDefaultVideoFrameProcessorFactory(
+              enableReplayableCache, adjustOutputSizeToSurface);
     }
 
     @Override
@@ -1334,9 +1353,12 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
             });
 
     private final boolean enableReplayableCache;
+    private final boolean adjustOutputSizeToSurface;
 
-    public ReflectiveDefaultVideoFrameProcessorFactory(boolean enableReplayableCache) {
+    public ReflectiveDefaultVideoFrameProcessorFactory(
+        boolean enableReplayableCache, boolean adjustOutputSizeToSurface) {
       this.enableReplayableCache = enableReplayableCache;
+      this.adjustOutputSizeToSurface = adjustOutputSizeToSurface;
     }
 
     @Override
@@ -1358,6 +1380,10 @@ public final class PlaybackVideoGraphWrapper implements VideoGraph.Listener {
             defaultVideoFrameProcessorFactoryBuilderClass.getMethod(
                 "setEnableReplayableCache", boolean.class);
         setUseReplayableCacheMethod.invoke(builder, enableReplayableCache);
+        Method setOutputSurfaceSizeAdjustmentEnabledMethod =
+            defaultVideoFrameProcessorFactoryBuilderClass.getMethod(
+                "setOutputSurfaceSizeAdjustmentEnabled", boolean.class);
+        setOutputSurfaceSizeAdjustmentEnabledMethod.invoke(builder, adjustOutputSizeToSurface);
         VideoFrameProcessor.Factory factory =
             (VideoFrameProcessor.Factory)
                 checkNotNull(

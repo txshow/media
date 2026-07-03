@@ -92,6 +92,7 @@
   <init>();
   androidx.media3.effect.DefaultVideoFrameProcessor$Factory build();
   androidx.media3.effect.DefaultVideoFrameProcessor$Factory$Builder setEnableReplayableCache(boolean);
+  androidx.media3.effect.DefaultVideoFrameProcessor$Factory$Builder setOutputSurfaceSizeAdjustmentEnabled(boolean);
 }
 
 # These notes are independent of the keep rules

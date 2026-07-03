@@ -40,8 +40,10 @@ import androidx.media3.common.VideoFrameProcessingException;
 import androidx.media3.common.VideoFrameProcessor;
 import androidx.media3.common.VideoFrameProcessor.Listener;
 import androidx.media3.common.util.GlUtil;
+import androidx.media3.common.util.Size;
 import androidx.media3.effect.GlShaderProgram.InputListener;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
@@ -65,6 +67,7 @@ public final class FinalShaderProgramWrapperTest {
   private @MonotonicNonNull GlObjectsProvider glObjectsProvider;
   private @MonotonicNonNull EGLSurface placeholderEglSurface;
   private @MonotonicNonNull VideoFrameProcessingTaskExecutor videoFrameProcessingTaskExecutor;
+  private @MonotonicNonNull ImageReader outputImageReader;
   @Nullable private VideoFrameProcessingException videoFrameProcessingException;
   @Nullable private VideoFrameProcessor.Listener videoFrameProcessorListener;
   @Nullable private InputListener inputListener;
@@ -106,8 +109,7 @@ public final class FinalShaderProgramWrapperTest {
 
   @Before
   public void createOutputSurface() {
-    ImageReader outputImageReader =
-        ImageReader.newInstance(1, 1, PixelFormat.RGBA_8888, /* maxImages= */ 10);
+    outputImageReader = ImageReader.newInstance(1, 1, PixelFormat.RGBA_8888, /* maxImages= */ 10);
     outputSurfaceInfo = new SurfaceInfo(outputImageReader.getSurface(), 1, 1);
   }
 
@@ -201,6 +203,7 @@ public final class FinalShaderProgramWrapperTest {
                 throw new IllegalStateException(e);
               }
             });
+    outputImageReader.close();
   }
 
   @Test
@@ -319,7 +322,31 @@ public final class FinalShaderProgramWrapperTest {
     assertThat(presentationTimesUsAvailableForRendering).containsExactly(2000L);
   }
 
+  @Test
+  public void setOutputSurfaceInfo_sizeChangeWithAdjustmentDisabled_doesNotReconfigure()
+      throws Exception {
+    buildFinalShaderProgramWrapper(
+        /* renderFramesAutomatically= */ true, /* adjustOutputSizeToSurface= */ false);
+    CountingTransformation transformation = new CountingTransformation();
+    finalShaderProgramWrapper.setMatrixTransformations(
+        ImmutableList.of(transformation), ImmutableList.of());
+    finalShaderProgramWrapper.queueInputFrame(glObjectsProvider, inputTextureInfos.get(0), 1000);
+    int configureCount = transformation.configureCount;
+
+    finalShaderProgramWrapper.setOutputSurfaceInfo(
+        new SurfaceInfo(outputSurfaceInfo.surface, 2, 2));
+    finalShaderProgramWrapper.queueInputFrame(glObjectsProvider, inputTextureInfos.get(1), 2000);
+
+    assertThat(transformation.configureCount).isEqualTo(configureCount);
+  }
+
   private void buildFinalShaderProgramWrapper(boolean renderFramesAutomatically) throws Exception {
+    buildFinalShaderProgramWrapper(
+        renderFramesAutomatically, /* adjustOutputSizeToSurface= */ true);
+  }
+
+  private void buildFinalShaderProgramWrapper(
+      boolean renderFramesAutomatically, boolean adjustOutputSizeToSurface) throws Exception {
     finalShaderProgramWrapper =
         new FinalShaderProgramWrapper(
             getApplicationContext(),
@@ -333,7 +360,8 @@ public final class FinalShaderProgramWrapperTest {
             null,
             2,
             DefaultVideoFrameProcessor.WORKING_COLOR_SPACE_DEFAULT,
-            renderFramesAutomatically);
+            renderFramesAutomatically,
+            adjustOutputSizeToSurface);
     videoFrameProcessingTaskExecutor.invoke(
         () -> {
           checkNotNull(inputListener);
@@ -342,5 +370,21 @@ public final class FinalShaderProgramWrapperTest {
           finalShaderProgramWrapper.setListener(listener);
         });
     finalShaderProgramWrapper.setOutputSurfaceInfo(outputSurfaceInfo);
+  }
+
+  private static final class CountingTransformation implements GlMatrixTransformation {
+
+    private int configureCount;
+
+    @Override
+    public Size configure(int inputWidth, int inputHeight) {
+      configureCount++;
+      return new Size(inputWidth, inputHeight);
+    }
+
+    @Override
+    public float[] getGlMatrixArray(long presentationTimeUs) {
+      return GlUtil.create4x4IdentityMatrix();
+    }
   }
 }
