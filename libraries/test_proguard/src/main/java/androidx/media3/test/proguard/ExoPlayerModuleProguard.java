@@ -81,11 +81,11 @@ public final class ExoPlayerModuleProguard {
     throw new IllegalStateException();
   }
 
-  /** Creates a ExperimentalFfmpegVideoRenderer with {@link DefaultRenderersFactory}. */
+  /** Creates a FfmpegVideoRenderer with {@link DefaultRenderersFactory}. */
   public static void createFfmpegVideoRendererWithDefaultRenderersFactory(Context context) {
     for (Renderer renderer : createDefaultRenderersFactoryRenderers(context)) {
       // Don't use instanceof to prevent including the class in the apk directly.
-      if ("ExperimentalFfmpegVideoRenderer".equals(renderer.getName())) {
+      if ("FfmpegVideoRenderer".equals(renderer.getName())) {
         return;
       }
     }

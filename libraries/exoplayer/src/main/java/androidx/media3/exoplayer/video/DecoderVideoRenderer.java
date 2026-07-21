@@ -26,6 +26,7 @@ import static java.lang.Math.max;
 import static java.lang.Math.min;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -124,6 +125,8 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   private final TimedValueQueue<Format> formatQueue;
   private final ArrayDeque<OutputStreamInfo> pendingOutputStreamChanges;
   private final DecoderInputBuffer flagsOnlyBuffer;
+  @Nullable private final VideoFrameReleaseHelper frameReleaseHelper;
+  @Nullable private final FixedFrameRateEstimator frameRateEstimator;
 
   @Nullable private Format inputFormat;
   @Nullable private Format outputFormat;
@@ -163,6 +166,9 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   private int consecutiveDroppedFrameCount;
   private int buffersInCodecCount;
   private long lastRenderTimeUs;
+  private long outputBufferReleaseTimeNs;
+  private boolean outputBufferProcessed;
+  private boolean outputBufferMetadataNotified;
 
   /** Decoder event counters used for debugging purposes. */
   protected DecoderCounters decoderCounters;
@@ -184,6 +190,32 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
       @Nullable Handler eventHandler,
       @Nullable VideoRendererEventListener eventListener,
       int maxDroppedFramesToNotify) {
+    this(
+        /* context= */ null,
+        allowedJoiningTimeMs,
+        eventHandler,
+        eventListener,
+        maxDroppedFramesToNotify);
+  }
+
+  /**
+   * Creates a renderer with display-aware frame release timing.
+   *
+   * @param context A context from which display information can be retrieved.
+   * @param allowedJoiningTimeMs The maximum duration in milliseconds for which this video renderer
+   *     can attempt to seamlessly join an ongoing playback.
+   * @param eventHandler A handler to use when delivering events to {@code eventListener}. May be
+   *     null if delivery of events is not required.
+   * @param eventListener A listener of events. May be null if delivery of events is not required.
+   * @param maxDroppedFramesToNotify The maximum number of frames that can be dropped between
+   *     invocations of {@link VideoRendererEventListener#onDroppedFrames(int, long)}.
+   */
+  protected DecoderVideoRenderer(
+      @Nullable Context context,
+      long allowedJoiningTimeMs,
+      @Nullable Handler eventHandler,
+      @Nullable VideoRendererEventListener eventListener,
+      int maxDroppedFramesToNotify) {
     super(C.TRACK_TYPE_VIDEO);
     this.allowedJoiningTimeMs = allowedJoiningTimeMs;
     this.maxDroppedFramesToNotify = maxDroppedFramesToNotify;
@@ -192,9 +224,17 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
     pendingOutputStreamChanges = new ArrayDeque<>();
     flagsOnlyBuffer = DecoderInputBuffer.newNoDataInstance();
     eventDispatcher = new EventDispatcher(eventHandler, eventListener);
+    if (context == null) {
+      frameReleaseHelper = null;
+      frameRateEstimator = null;
+    } else {
+      frameReleaseHelper = new VideoFrameReleaseHelper(context.getApplicationContext());
+      frameRateEstimator = new FixedFrameRateEstimator(frameReleaseHelper::setSurfaceMediaFrameRate);
+    }
     decoderReinitializationState = REINITIALIZATION_STATE_NONE;
     largestQueuedPresentationTimeUs = C.TIME_UNSET;
     outputMode = C.VIDEO_OUTPUT_MODE_NONE;
+    outputBufferReleaseTimeNs = C.TIME_UNSET;
     firstFrameState = C.FIRST_FRAME_NOT_RENDERED_ONLY_ALLOWED_IF_STARTED;
     decoderCounters = new DecoderCounters();
   }
@@ -301,6 +341,13 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
     }
   }
 
+  @Override
+  public void setPlaybackSpeed(float currentPlaybackSpeed, float targetPlaybackSpeed) {
+    if (frameReleaseHelper != null) {
+      frameReleaseHelper.onPlaybackSpeed(currentPlaybackSpeed);
+    }
+  }
+
   // Protected methods.
 
   @Override
@@ -325,6 +372,9 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   protected void onPositionReset(
       long positionUs, boolean joining, boolean sampleStreamIsResetToKeyFrame)
       throws ExoPlaybackException {
+    if (frameReleaseHelper != null) {
+      frameReleaseHelper.onPositionReset();
+    }
     // TODO(b/440006632): Implement decode-only frame drop logic to allow skipping keyframe reset.
     inputStreamEnded = false;
     outputStreamEnded = false;
@@ -356,6 +406,9 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
 
   @Override
   protected void onStarted() {
+    if (frameReleaseHelper != null) {
+      frameReleaseHelper.onStarted();
+    }
     droppedFrames = 0;
     droppedFrameAccumulationStartTimeMs = SystemClock.elapsedRealtime();
     lastRenderTimeUs = msToUs(SystemClock.elapsedRealtime());
@@ -363,6 +416,9 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
 
   @Override
   protected void onStopped() {
+    if (frameReleaseHelper != null) {
+      frameReleaseHelper.onStopped();
+    }
     joiningDeadlineMs = C.TIME_UNSET;
     maybeNotifyDroppedFrames();
   }
@@ -448,7 +504,10 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   @CallSuper
   protected void releaseDecoder() {
     inputBuffer = null;
-    outputBuffer = null;
+    if (outputBuffer != null) {
+      outputBuffer.release();
+      outputBuffer = null;
+    }
     decoderReinitializationState = REINITIALIZATION_STATE_NONE;
     decoderReceivedBuffers = false;
     buffersInCodecCount = 0;
@@ -471,6 +530,9 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   protected void onInputFormatChanged(FormatHolder formatHolder) throws ExoPlaybackException {
     waitingForFirstSampleInFormat = true;
     Format newFormat = checkNotNull(formatHolder.format);
+    if (frameRateEstimator != null) {
+      frameRateEstimator.onFormatChanged(newFormat.frameRate);
+    }
     setSourceDrmSession(formatHolder.drmSession);
     Format oldFormat = inputFormat;
     inputFormat = newFormat;
@@ -664,27 +726,60 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
   protected void renderOutputBuffer(
       VideoDecoderOutputBuffer outputBuffer, long presentationTimeUs, Format outputFormat)
       throws DecoderException {
-    if (frameMetadataListener != null) {
-      frameMetadataListener.onVideoFrameAboutToBeRendered(
-          presentationTimeUs, getClock().nanoTime(), outputFormat, /* mediaFormat= */ null);
-    }
-    lastRenderTimeUs = msToUs(SystemClock.elapsedRealtime());
+    long releaseTimeNs =
+        outputBufferReleaseTimeNs == C.TIME_UNSET
+            ? getClock().nanoTime()
+            : outputBufferReleaseTimeNs;
     int bufferMode = outputBuffer.mode;
     boolean renderSurface = bufferMode == C.VIDEO_OUTPUT_MODE_SURFACE_YUV && outputSurface != null;
     boolean renderYuv = bufferMode == C.VIDEO_OUTPUT_MODE_YUV && outputBufferRenderer != null;
     if (!renderYuv && !renderSurface) {
       dropOutputBuffer(outputBuffer);
+      return;
     } else {
-      maybeNotifyVideoSizeChanged(outputBuffer.width, outputBuffer.height);
+      maybeNotifyVideoSizeChanged(outputBuffer.width, outputBuffer.height, outputFormat);
       if (renderYuv) {
+        notifyFrameMetadataListener(presentationTimeUs, releaseTimeNs, outputFormat);
         checkNotNull(outputBufferRenderer).setOutputBuffer(outputBuffer);
       } else {
-        renderOutputBufferToSurface(outputBuffer, checkNotNull(outputSurface));
+        if (!outputBufferMetadataNotified) {
+          notifyFrameMetadataListener(presentationTimeUs, releaseTimeNs, outputFormat);
+          outputBufferMetadataNotified = true;
+        }
+        if (!renderOutputBufferToSurfaceIfReady(
+            outputBuffer,
+            checkNotNull(outputSurface),
+            presentationTimeUs,
+            releaseTimeNs,
+            outputFormat)) {
+          outputBufferProcessed = false;
+          return;
+        }
       }
+      lastRenderTimeUs = msToUs(SystemClock.elapsedRealtime());
       consecutiveDroppedFrameCount = 0;
       decoderCounters.renderedOutputBufferCount++;
       maybeNotifyRenderedFirstFrame();
     }
+  }
+
+  /**
+   * Attempts to render the specified output buffer to the passed surface.
+   *
+   * <p>Subclasses that can temporarily reject a frame may override this method. The default
+   * implementation delegates to {@link #renderOutputBufferToSurface} and returns {@code true}.
+   *
+   * @return Whether ownership of the output buffer was accepted.
+   */
+  protected boolean renderOutputBufferToSurfaceIfReady(
+      VideoDecoderOutputBuffer outputBuffer,
+      Surface surface,
+      long presentationTimeUs,
+      long releaseTimeNs,
+      Format outputFormat)
+      throws DecoderException {
+    renderOutputBufferToSurface(outputBuffer, surface);
+    return true;
   }
 
   /**
@@ -717,16 +812,17 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
       outputBufferRenderer = null;
       outputMode = C.VIDEO_OUTPUT_MODE_NONE;
     }
+    if (frameReleaseHelper != null) {
+      frameReleaseHelper.onSurfaceChanged(outputSurface);
+    }
     if (this.output != output) {
       this.output = output;
+      if (decoder != null) {
+        setDecoderOutputMode(outputMode);
+      }
       if (output != null) {
-        if (decoder != null) {
-          setDecoderOutputMode(outputMode);
-        }
         onOutputChanged();
       } else {
-        // The output has been removed. We leave the outputMode of the underlying decoder unchanged
-        // in anticipation that a subsequent output will likely be of the same type.
         onOutputRemoved();
       }
     } else if (output != null) {
@@ -894,6 +990,11 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
       if (outputBuffer == null) {
         return false;
       }
+      outputBufferMetadataNotified = false;
+      if (!outputBuffer.isEndOfStream() && frameRateEstimator != null) {
+        frameRateEstimator.onNextFrame(
+            (outputBuffer.timeUs - checkNotNull(outputStreamInfo).streamOffsetUs) * 1_000);
+      }
       decoderCounters.skippedOutputBufferCount += outputBuffer.skippedOutputBufferCount;
       buffersInCodecCount -= outputBuffer.skippedOutputBufferCount;
     }
@@ -968,8 +1069,8 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
     }
 
     if (shouldForceRender(earlyUs)) {
-      renderOutputBuffer(outputBuffer, presentationTimeUs, checkNotNull(outputFormat));
-      return true;
+      return renderOutputBufferAndCheckProcessed(
+          outputBuffer, presentationTimeUs, System.nanoTime(), checkNotNull(outputFormat));
     }
 
     boolean isStarted = getState() == STATE_STARTED;
@@ -986,9 +1087,21 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
       return true;
     }
 
-    if (earlyUs < 30000) {
-      renderOutputBuffer(outputBuffer, presentationTimeUs, checkNotNull(outputFormat));
-      return true;
+    if (earlyUs < 30_000) {
+      long elapsedSinceRenderLoopStartUs =
+          msToUs(SystemClock.elapsedRealtime()) - elapsedRealtimeUs;
+      long releaseTimeNs =
+          System.nanoTime() + max(earlyUs - elapsedSinceRenderLoopStartUs, 0) * 1_000;
+      if (frameReleaseHelper != null && frameRateEstimator != null) {
+        releaseTimeNs =
+            frameReleaseHelper.adjustReleaseTime(
+                releaseTimeNs,
+                presentationTimeUs,
+                frameRateEstimator.getFrameDurationNs(),
+                frameRateEstimator.getFrameIndex());
+      }
+      return renderOutputBufferAndCheckProcessed(
+          outputBuffer, presentationTimeUs, releaseTimeNs, checkNotNull(outputFormat));
     }
 
     return false;
@@ -1013,6 +1126,30 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
 
   private boolean hasOutput() {
     return outputMode != C.VIDEO_OUTPUT_MODE_NONE;
+  }
+
+  private boolean renderOutputBufferAndCheckProcessed(
+      VideoDecoderOutputBuffer outputBuffer,
+      long presentationTimeUs,
+      long releaseTimeNs,
+      Format outputFormat)
+      throws DecoderException {
+    outputBufferProcessed = true;
+    outputBufferReleaseTimeNs = releaseTimeNs;
+    try {
+      renderOutputBuffer(outputBuffer, presentationTimeUs, outputFormat);
+      return outputBufferProcessed;
+    } finally {
+      outputBufferReleaseTimeNs = C.TIME_UNSET;
+    }
+  }
+
+  private void notifyFrameMetadataListener(
+      long presentationTimeUs, long releaseTimeNs, Format outputFormat) {
+    if (frameMetadataListener != null) {
+      frameMetadataListener.onVideoFrameAboutToBeRendered(
+          presentationTimeUs, releaseTimeNs, outputFormat, /* mediaFormat= */ null);
+    }
   }
 
   private void onOutputChanged() {
@@ -1063,11 +1200,19 @@ public abstract class DecoderVideoRenderer extends BaseRenderer implements Decod
     }
   }
 
-  private void maybeNotifyVideoSizeChanged(int width, int height) {
-    if (reportedVideoSize == null
-        || reportedVideoSize.width != width
-        || reportedVideoSize.height != height) {
-      reportedVideoSize = new VideoSize(width, height);
+  /**
+   * Returns the video size to report for a decoded frame.
+   *
+   * <p>Subclasses may adjust the size when they apply transformations while rendering.
+   */
+  protected VideoSize getOutputVideoSize(int width, int height, Format outputFormat) {
+    return new VideoSize(width, height, outputFormat.pixelWidthHeightRatio);
+  }
+
+  private void maybeNotifyVideoSizeChanged(int width, int height, Format outputFormat) {
+    VideoSize videoSize = getOutputVideoSize(width, height, outputFormat);
+    if (!videoSize.equals(reportedVideoSize)) {
+      reportedVideoSize = videoSize;
       eventDispatcher.videoSizeChanged(reportedVideoSize);
     }
   }
