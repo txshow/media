@@ -495,17 +495,22 @@ public abstract class MappingTrackSelector extends TrackSelector {
    *     renderers.length} if it was not mapped to any renderer.
    * @throws ExoPlaybackException If an error occurs finding a renderer.
    */
-  private static int findRenderer(
+  private int findRenderer(
       RendererCapabilities[] rendererCapabilities,
       TrackGroup group,
       int[] rendererTrackGroupCounts,
       boolean preferUnassociatedRenderer)
       throws ExoPlaybackException {
+    int bestPreferredRendererIndex = C.INDEX_UNSET;
+    @FormatSupport int bestPreferredFormatSupportLevel = C.FORMAT_UNSUPPORTED_TYPE;
     int bestRendererIndex = rendererCapabilities.length;
     @FormatSupport int bestFormatSupportLevel = C.FORMAT_UNSUPPORTED_TYPE;
     boolean bestRendererIsUnassociated = true;
     for (int rendererIndex = 0; rendererIndex < rendererCapabilities.length; rendererIndex++) {
       RendererCapabilities rendererCapability = rendererCapabilities[rendererIndex];
+      if (!isRendererAllowed(rendererCapability, group)) {
+        continue;
+      }
       @FormatSupport int formatSupportLevel = C.FORMAT_UNSUPPORTED_TYPE;
       for (int trackIndex = 0; trackIndex < group.length; trackIndex++) {
         @FormatSupport
@@ -513,6 +518,11 @@ public abstract class MappingTrackSelector extends TrackSelector {
             RendererCapabilities.getFormatSupport(
                 rendererCapability.supportsFormat(group.getFormat(trackIndex)));
         formatSupportLevel = max(formatSupportLevel, trackFormatSupportLevel);
+      }
+      if (isPreferredRenderer(rendererCapability, group, formatSupportLevel)
+          && formatSupportLevel > bestPreferredFormatSupportLevel) {
+        bestPreferredRendererIndex = rendererIndex;
+        bestPreferredFormatSupportLevel = formatSupportLevel;
       }
       boolean rendererIsUnassociated = rendererTrackGroupCounts[rendererIndex] == 0;
       if (formatSupportLevel > bestFormatSupportLevel
@@ -525,7 +535,9 @@ public abstract class MappingTrackSelector extends TrackSelector {
         bestRendererIsUnassociated = rendererIsUnassociated;
       }
     }
-    return bestRendererIndex;
+    return bestPreferredRendererIndex != C.INDEX_UNSET
+        ? bestPreferredRendererIndex
+        : bestRendererIndex;
   }
 
   /**
@@ -562,5 +574,21 @@ public abstract class MappingTrackSelector extends TrackSelector {
       mixedMimeTypeAdaptationSupport[i] = rendererCapabilities[i].supportsMixedMimeTypeAdaptation();
     }
     return mixedMimeTypeAdaptationSupport;
+  }
+
+  /** Returns whether {@code rendererCapability} may be mapped to {@code group}. */
+  protected boolean isRendererAllowed(RendererCapabilities rendererCapability, TrackGroup group) {
+    return true;
+  }
+
+  /**
+   * Returns whether {@code rendererCapability} should be preferred when mapping {@code group},
+   * given the renderer's best support for the group's tracks.
+   */
+  protected boolean isPreferredRenderer(
+      RendererCapabilities rendererCapability,
+      TrackGroup group,
+      @FormatSupport int formatSupportLevel) {
+    return false;
   }
 }
