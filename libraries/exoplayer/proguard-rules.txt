@@ -9,9 +9,9 @@
 -keepclassmembers class androidx.media3.decoder.av1.Libdav1dVideoRenderer {
   <init>(long, android.os.Handler, androidx.media3.exoplayer.video.VideoRendererEventListener, int);
 }
--dontnote androidx.media3.decoder.ffmpeg.ExperimentalFfmpegVideoRenderer
--keepclassmembers class androidx.media3.decoder.ffmpeg.ExperimentalFfmpegVideoRenderer {
-  <init>(long, android.os.Handler, androidx.media3.exoplayer.video.VideoRendererEventListener, int);
+-dontnote androidx.media3.decoder.ffmpeg.FfmpegVideoRenderer
+-keepclassmembers class androidx.media3.decoder.ffmpeg.FfmpegVideoRenderer {
+  <init>(android.content.Context, long, android.os.Handler, androidx.media3.exoplayer.video.VideoRendererEventListener, int);
 }
 -dontnote androidx.media3.decoder.opus.LibopusAudioRenderer
 -keepclassmembers class androidx.media3.decoder.opus.LibopusAudioRenderer {

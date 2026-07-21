@@ -192,16 +192,7 @@ public abstract class SimpleDecoder<
     synchronized (lock) {
       flushed = true;
       skippedOutputBufferCount = 0;
-      if (dequeuedInputBuffer != null) {
-        releaseInputBufferInternal(dequeuedInputBuffer, /* notifyCallback= */ false);
-        dequeuedInputBuffer = null;
-      }
-      while (!queuedInputBuffers.isEmpty()) {
-        releaseInputBufferInternal(queuedInputBuffers.removeFirst(), /* notifyCallback= */ false);
-      }
-      while (!queuedOutputBuffers.isEmpty()) {
-        queuedOutputBuffers.removeFirst().release();
-      }
+      releaseQueuedBuffers();
     }
   }
 
@@ -212,10 +203,20 @@ public abstract class SimpleDecoder<
       released = true;
       lock.notify();
     }
-    try {
-      decodeThread.join();
-    } catch (InterruptedException e) {
+    boolean wasInterrupted = false;
+    while (true) {
+      try {
+        decodeThread.join();
+        break;
+      } catch (InterruptedException e) {
+        wasInterrupted = true;
+      }
+    }
+    if (wasInterrupted) {
       Thread.currentThread().interrupt();
+    }
+    synchronized (lock) {
+      releaseQueuedBuffers();
     }
   }
 
@@ -273,8 +274,23 @@ public abstract class SimpleDecoder<
       flushed = false;
     }
 
+    boolean reuseEndOfStreamInput = false;
     if (inputBuffer.isEndOfStream()) {
-      outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
+      @Nullable E exception;
+      try {
+        exception = decodeEndOfStream(inputBuffer, outputBuffer, resetDecoder);
+      } catch (RuntimeException e) {
+        exception = createUnexpectedDecodeException(e);
+      } catch (OutOfMemoryError e) {
+        exception = createUnexpectedDecodeException(e);
+      }
+      if (exception != null) {
+        synchronized (lock) {
+          this.exception = exception;
+        }
+        return false;
+      }
+      reuseEndOfStreamInput = !outputBuffer.isEndOfStream();
     } else {
       outputBuffer.timeUs = inputBuffer.timeUs;
       if (inputBuffer.isFirstSample()) {
@@ -320,8 +336,12 @@ public abstract class SimpleDecoder<
           currentExecutor.execute(currentOnOutputBufferAvailableRunnable);
         }
       }
-      // Make the input buffer available again.
-      releaseInputBufferInternal(inputBuffer, /* notifyCallback= */ true);
+      if (reuseEndOfStreamInput && !flushed) {
+        queuedInputBuffers.addFirst(inputBuffer);
+      } else {
+        // Make the input buffer available again.
+        releaseInputBufferInternal(inputBuffer, /* notifyCallback= */ true);
+      }
     }
 
     return true;
@@ -340,6 +360,23 @@ public abstract class SimpleDecoder<
         && currentOnInputBufferAvailableRunnable != null
         && currentExecutor != null) {
       currentExecutor.execute(currentOnInputBufferAvailableRunnable);
+    }
+  }
+
+  /**
+   * Releases buffers that are owned by this decoder. Must be called while holding {@link #lock}.
+   */
+  private void releaseQueuedBuffers() {
+    if (dequeuedInputBuffer != null) {
+      releaseInputBufferInternal(dequeuedInputBuffer, /* notifyCallback= */ false);
+      dequeuedInputBuffer = null;
+    }
+    while (!queuedInputBuffers.isEmpty()) {
+      releaseInputBufferInternal(
+          queuedInputBuffers.removeFirst(), /* notifyCallback= */ false);
+    }
+    while (!queuedOutputBuffers.isEmpty()) {
+      queuedOutputBuffers.removeFirst().release();
     }
   }
 
@@ -376,4 +413,17 @@ public abstract class SimpleDecoder<
    */
   @Nullable
   protected abstract E decode(I inputBuffer, O outputBuffer, boolean reset);
+
+  /**
+   * Drains delayed output when an end-of-stream input buffer is received.
+   *
+   * <p>If this method produces output without setting {@link C#BUFFER_FLAG_END_OF_STREAM}, the same
+   * input buffer is retained and this method is called again with a fresh output buffer. The
+   * default implementation produces end of stream immediately.
+   */
+  @Nullable
+  protected E decodeEndOfStream(I inputBuffer, O outputBuffer, boolean reset) {
+    outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
+    return null;
+  }
 }

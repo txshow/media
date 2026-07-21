@@ -15,6 +15,13 @@
  */
 package androidx.media3.decoder.ffmpeg;
 
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_AUDIO_CHANNEL_COUNT_CHANGED;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_AUDIO_ENCODING_CHANGED;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_AUDIO_SAMPLE_RATE_CHANGED;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_INITIALIZATION_DATA_CHANGED;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.DISCARD_REASON_MIME_TYPE_CHANGED;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_NO;
+import static androidx.media3.exoplayer.DecoderReuseEvaluation.REUSE_RESULT_YES_WITHOUT_RECONFIGURATION;
 import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_SUPPORTED_DIRECTLY;
 import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_SUPPORTED_WITH_TRANSCODING;
 import static androidx.media3.exoplayer.audio.AudioSink.SINK_FORMAT_UNSUPPORTED;
@@ -31,11 +38,13 @@ import androidx.media3.common.util.TraceUtil;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
 import androidx.media3.decoder.CryptoConfig;
+import androidx.media3.exoplayer.DecoderReuseEvaluation;
 import androidx.media3.exoplayer.audio.AudioRendererEventListener;
 import androidx.media3.exoplayer.audio.AudioSink;
 import androidx.media3.exoplayer.audio.AudioSink.SinkFormatSupport;
 import androidx.media3.exoplayer.audio.DecoderAudioRenderer;
 import androidx.media3.exoplayer.audio.DefaultAudioSink;
+import java.util.Objects;
 
 /** Decodes and renders audio using FFmpeg. */
 @UnstableApi
@@ -134,7 +143,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
     String mimeType = checkNotNull(format.sampleMimeType);
     if (!FfmpegLibrary.isAvailable() || !MimeTypes.isAudio(mimeType)) {
       return C.FORMAT_UNSUPPORTED_TYPE;
-    } else if (!FfmpegLibrary.supportsFormat(mimeType)
+    } else if (!FfmpegLibrary.supportsFormat(format)
         || (!sinkSupportsFormat(format, C.ENCODING_PCM_16BIT)
             && !sinkSupportsFormat(format, C.ENCODING_PCM_FLOAT))) {
       return C.FORMAT_UNSUPPORTED_SUBTYPE;
@@ -154,18 +163,18 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
   protected FfmpegAudioDecoder createDecoder(Format format, @Nullable CryptoConfig cryptoConfig)
       throws FfmpegDecoderException {
     TraceUtil.beginSection("createFfmpegAudioDecoder");
-    int initialInputBufferSize =
-        format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
-    FfmpegAudioDecoder decoder =
-        new FfmpegAudioDecoder(
-            format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, shouldOutputFloat(format));
-    TraceUtil.endSection();
-    return decoder;
+    try {
+      int initialInputBufferSize =
+          format.maxInputSize != Format.NO_VALUE ? format.maxInputSize : DEFAULT_INPUT_BUFFER_SIZE;
+      return new FfmpegAudioDecoder(
+          format, NUM_BUFFERS, NUM_BUFFERS, initialInputBufferSize, shouldOutputFloat(format));
+    } finally {
+      TraceUtil.endSection();
+    }
   }
 
   @Override
   protected Format getOutputFormat(FfmpegAudioDecoder decoder) {
-    checkNotNull(decoder);
     return new Format.Builder()
         .setSampleMimeType(MimeTypes.AUDIO_RAW)
         .setChannelCount(decoder.getChannelCount())
@@ -174,13 +183,44 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         .build();
   }
 
+  @Override
+  protected DecoderReuseEvaluation canReuseDecoder(
+      String decoderName, Format oldFormat, Format newFormat) {
+    int discardReasons = 0;
+    if (!Objects.equals(
+        FfmpegLibrary.getCodecName(oldFormat), FfmpegLibrary.getCodecName(newFormat))) {
+      discardReasons |= DISCARD_REASON_MIME_TYPE_CHANGED;
+    }
+    if (!oldFormat.initializationDataEquals(newFormat)) {
+      discardReasons |= DISCARD_REASON_INITIALIZATION_DATA_CHANGED;
+    }
+    if (oldFormat.channelCount == Format.NO_VALUE
+        || newFormat.channelCount == Format.NO_VALUE
+        || oldFormat.channelCount != newFormat.channelCount) {
+      discardReasons |= DISCARD_REASON_AUDIO_CHANNEL_COUNT_CHANGED;
+    }
+    if (oldFormat.sampleRate == Format.NO_VALUE
+        || newFormat.sampleRate == Format.NO_VALUE
+        || oldFormat.sampleRate != newFormat.sampleRate) {
+      discardReasons |= DISCARD_REASON_AUDIO_SAMPLE_RATE_CHANGED;
+    }
+    if (shouldOutputFloat(oldFormat) != shouldOutputFloat(newFormat)) {
+      discardReasons |= DISCARD_REASON_AUDIO_ENCODING_CHANGED;
+    }
+    return new DecoderReuseEvaluation(
+        decoderName,
+        oldFormat,
+        newFormat,
+        discardReasons == 0 ? REUSE_RESULT_YES_WITHOUT_RECONFIGURATION : REUSE_RESULT_NO,
+        discardReasons);
+  }
+
   /**
    * Returns whether the renderer's {@link AudioSink} supports the PCM format that will be output
    * from the decoder for the given input format and requested output encoding.
    */
   private boolean sinkSupportsFormat(Format inputFormat, @C.PcmEncoding int pcmEncoding) {
-    return sinkSupportsFormat(
-        Util.getPcmFormat(pcmEncoding, inputFormat.channelCount, inputFormat.sampleRate));
+    return sinkSupportsFormat(getPcmOutputFormat(inputFormat, pcmEncoding));
   }
 
   private boolean shouldOutputFloat(Format inputFormat) {
@@ -190,10 +230,7 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
     }
 
     @SinkFormatSupport
-    int formatSupport =
-        getSinkFormatSupport(
-            Util.getPcmFormat(
-                C.ENCODING_PCM_FLOAT, inputFormat.channelCount, inputFormat.sampleRate));
+    int formatSupport = getSinkFormatSupport(getPcmOutputFormat(inputFormat, C.ENCODING_PCM_FLOAT));
     switch (formatSupport) {
       case SINK_FORMAT_SUPPORTED_DIRECTLY:
         // AC-3 is always 16-bit, so there's no point using floating point. Assume that it's worth
@@ -205,5 +242,10 @@ public final class FfmpegAudioRenderer extends DecoderAudioRenderer<FfmpegAudioD
         // Always prefer 16-bit PCM if the sink does not provide direct support for floating point.
         return false;
     }
+  }
+
+  private static Format getPcmOutputFormat(Format inputFormat, @C.PcmEncoding int pcmEncoding) {
+    return Util.getPcmFormat(
+        pcmEncoding, inputFormat.channelCount, FfmpegLibrary.getPcmOutputSampleRate(inputFormat));
   }
 }

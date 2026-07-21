@@ -20,7 +20,6 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
-import androidx.media3.common.MimeTypes;
 import androidx.media3.common.util.ParsableByteArray;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.common.util.Util;
@@ -28,7 +27,6 @@ import androidx.media3.decoder.DecoderInputBuffer;
 import androidx.media3.decoder.SimpleDecoder;
 import androidx.media3.decoder.SimpleDecoderOutputBuffer;
 import java.nio.ByteBuffer;
-import java.util.List;
 
 /** FFmpeg audio decoder. */
 @UnstableApi
@@ -40,12 +38,7 @@ public final class FfmpegAudioDecoder
 
   private static final int AUDIO_DECODER_ERROR_INVALID_DATA = -1;
   private static final int AUDIO_DECODER_ERROR_OTHER = -2;
-
-  // FLAC parsing constants
-  private static final byte[] flacStreamMarker = {'f', 'L', 'a', 'C'};
-  private static final int FLAC_METADATA_TYPE_STREAM_INFO = 0;
-  private static final int FLAC_METADATA_BLOCK_HEADER_SIZE = 4;
-  private static final int FLAC_STREAM_INFO_DATA_SIZE = 34;
+  private static final int AUDIO_DECODER_END_OF_STREAM = -3;
 
   private final String codecName;
   @Nullable private final byte[] extraData;
@@ -65,21 +58,45 @@ public final class FfmpegAudioDecoder
       boolean outputFloat)
       throws FfmpegDecoderException {
     super(new DecoderInputBuffer[numInputBuffers], new SimpleDecoderOutputBuffer[numOutputBuffers]);
-    if (!FfmpegLibrary.isAvailable()) {
-      throw new FfmpegDecoderException("Failed to load decoder native libraries.");
+    boolean initialized = false;
+    try {
+      if (!FfmpegLibrary.isAvailable()) {
+        throw new FfmpegDecoderException("Failed to load decoder native libraries.");
+      }
+      checkNotNull(format.sampleMimeType);
+      codecName = checkNotNull(FfmpegLibrary.getCodecName(format));
+      FfmpegInitializationData initializationData = FfmpegInitializationData.forAudio(format);
+      extraData = initializationData.extraData;
+      encoding = outputFloat ? C.ENCODING_PCM_FLOAT : C.ENCODING_PCM_16BIT;
+      outputBufferSize =
+          outputFloat ? INITIAL_OUTPUT_BUFFER_SIZE_32BIT : INITIAL_OUTPUT_BUFFER_SIZE_16BIT;
+      nativeContext =
+          ffmpegInitialize(
+              codecName,
+              extraData,
+              outputFloat,
+              format.sampleRate,
+              format.channelCount,
+              initializationData.blockAlign,
+              initializationData.bitsPerCodedSample,
+              format.averageBitrate);
+      if (nativeContext == 0) {
+        throw new FfmpegDecoderException("Initialization failed.");
+      }
+      setInitialInputBufferSize(initialInputBufferSize);
+      initialized = true;
+    } finally {
+      if (!initialized) {
+        try {
+          super.release();
+        } finally {
+          if (nativeContext != 0) {
+            ffmpegRelease(nativeContext);
+            nativeContext = 0;
+          }
+        }
+      }
     }
-    checkNotNull(format.sampleMimeType);
-    codecName = checkNotNull(FfmpegLibrary.getCodecName(format.sampleMimeType));
-    extraData = getExtraData(format.sampleMimeType, format.initializationData);
-    encoding = outputFloat ? C.ENCODING_PCM_FLOAT : C.ENCODING_PCM_16BIT;
-    outputBufferSize =
-        outputFloat ? INITIAL_OUTPUT_BUFFER_SIZE_32BIT : INITIAL_OUTPUT_BUFFER_SIZE_16BIT;
-    nativeContext =
-        ffmpegInitialize(codecName, extraData, outputFloat, format.sampleRate, format.channelCount);
-    if (nativeContext == 0) {
-      throw new FfmpegDecoderException("Initialization failed.");
-    }
-    setInitialInputBufferSize(initialInputBufferSize);
   }
 
   @Override
@@ -108,18 +125,53 @@ public final class FfmpegAudioDecoder
   @Nullable
   protected FfmpegDecoderException decode(
       DecoderInputBuffer inputBuffer, SimpleDecoderOutputBuffer outputBuffer, boolean reset) {
-    if (reset) {
-      nativeContext = ffmpegReset(nativeContext, extraData);
-      if (nativeContext == 0) {
-        return new FfmpegDecoderException("Error resetting (see logcat).");
-      }
+    @Nullable FfmpegDecoderException resetError = maybeResetDecoder(reset);
+    if (resetError != null) {
+      return resetError;
     }
     ByteBuffer inputData = Util.castNonNull(inputBuffer.data);
-    int inputSize = inputData.limit();
     ByteBuffer outputData = outputBuffer.init(inputBuffer.timeUs, outputBufferSize);
     int result =
         ffmpegDecode(
-            nativeContext, inputData, inputSize, outputBuffer, outputData, outputBufferSize);
+            nativeContext,
+            inputData,
+            inputData.position(),
+            inputData.remaining(),
+            inputBuffer.timeUs,
+            outputBuffer,
+            outputData,
+            outputBufferSize);
+    return finishDecode(result, outputBuffer);
+  }
+
+  @Nullable
+  @Override
+  protected FfmpegDecoderException decodeEndOfStream(
+      DecoderInputBuffer inputBuffer, SimpleDecoderOutputBuffer outputBuffer, boolean reset) {
+    @Nullable FfmpegDecoderException resetError = maybeResetDecoder(reset);
+    if (resetError != null) {
+      return resetError;
+    }
+    ByteBuffer outputData = outputBuffer.init(inputBuffer.timeUs, outputBufferSize);
+    int result = ffmpegDrain(nativeContext, outputBuffer, outputData, outputBufferSize);
+    if (result == AUDIO_DECODER_END_OF_STREAM) {
+      outputBuffer.addFlag(C.BUFFER_FLAG_END_OF_STREAM);
+      return null;
+    }
+    return finishDecode(result, outputBuffer);
+  }
+
+  @Nullable
+  private FfmpegDecoderException maybeResetDecoder(boolean reset) {
+    if (!reset) {
+      return null;
+    }
+    nativeContext = ffmpegReset(nativeContext, extraData);
+    return nativeContext == 0 ? new FfmpegDecoderException("Error resetting (see logcat).") : null;
+  }
+
+  @Nullable
+  private FfmpegDecoderException finishDecode(int result, SimpleDecoderOutputBuffer outputBuffer) {
     if (result == AUDIO_DECODER_ERROR_OTHER) {
       return new FfmpegDecoderException("Error decoding (see logcat).");
     } else if (result == AUDIO_DECODER_ERROR_INVALID_DATA) {
@@ -132,6 +184,10 @@ public final class FfmpegAudioDecoder
       // There's no need to output empty buffers.
       outputBuffer.shouldBeSkipped = true;
       return null;
+    }
+    long outputTimeUs = ffmpegGetLastOutputTimeUs(nativeContext);
+    if (outputTimeUs != Long.MIN_VALUE) {
+      outputBuffer.timeUs = outputTimeUs;
     }
     if (!hasOutputFormat) {
       channelCount = ffmpegGetChannelCount(nativeContext);
@@ -148,7 +204,7 @@ public final class FfmpegAudioDecoder
     }
     // Get a new reference to the output ByteBuffer in case the native decode method reallocated the
     // buffer to grow its size.
-    outputData = checkNotNull(outputBuffer.data);
+    ByteBuffer outputData = checkNotNull(outputBuffer.data);
     outputData.position(0);
     outputData.limit(result);
     return null;
@@ -156,17 +212,25 @@ public final class FfmpegAudioDecoder
 
   // Called from native code
   @SuppressWarnings("unused")
-  private ByteBuffer growOutputBuffer(SimpleDecoderOutputBuffer outputBuffer, int requiredSize) {
-    // Use it for new buffer so that hopefully we won't need to reallocate again
+  private ByteBuffer growOutputBuffer(
+      SimpleDecoderOutputBuffer outputBuffer, int currentSize, int requiredSize) {
+    ByteBuffer currentData = checkNotNull(outputBuffer.data);
+    currentData.position(0);
+    currentData.limit(currentSize);
     outputBufferSize = requiredSize;
     return outputBuffer.grow(requiredSize);
   }
 
   @Override
   public void release() {
-    super.release();
-    ffmpegRelease(nativeContext);
-    nativeContext = 0;
+    try {
+      super.release();
+    } finally {
+      if (nativeContext != 0) {
+        ffmpegRelease(nativeContext);
+        nativeContext = 0;
+      }
+    }
   }
 
   /** Returns the channel count of output audio. */
@@ -184,130 +248,28 @@ public final class FfmpegAudioDecoder
     return encoding;
   }
 
-  /**
-   * Returns FFmpeg-compatible codec-specific initialization data ("extra data"), or {@code null} if
-   * not required.
-   */
-  @Nullable
-  private static byte[] getExtraData(String mimeType, List<byte[]> initializationData) {
-    switch (mimeType) {
-      case MimeTypes.AUDIO_AAC:
-      case MimeTypes.AUDIO_OPUS:
-        return initializationData.get(0);
-      case MimeTypes.AUDIO_ALAC:
-        return getAlacExtraData(initializationData);
-      case MimeTypes.AUDIO_VORBIS:
-        return getVorbisExtraData(initializationData);
-      case MimeTypes.AUDIO_FLAC:
-        return getFlacExtraData(initializationData);
-      default:
-        // Other codecs do not require extra data.
-        return null;
-    }
-  }
-
-  private static byte[] getAlacExtraData(List<byte[]> initializationData) {
-    // FFmpeg's ALAC decoder expects an ALAC atom, which contains the ALAC "magic cookie", as extra
-    // data. initializationData[0] contains only the magic cookie, and so we need to package it into
-    // an ALAC atom. See:
-    // https://ffmpeg.org/doxygen/0.6/alac_8c.html
-    // https://github.com/macosforge/alac/blob/master/ALACMagicCookieDescription.txt
-    byte[] magicCookie = initializationData.get(0);
-    int alacAtomLength = 12 + magicCookie.length;
-    ByteBuffer alacAtom = ByteBuffer.allocate(alacAtomLength);
-    alacAtom.putInt(alacAtomLength);
-    alacAtom.putInt(0x616c6163); // type=alac
-    alacAtom.putInt(0); // version=0, flags=0
-    alacAtom.put(magicCookie, /* offset= */ 0, magicCookie.length);
-    return alacAtom.array();
-  }
-
-  private static byte[] getVorbisExtraData(List<byte[]> initializationData) {
-    byte[] header0 = initializationData.get(0);
-    byte[] header1 = initializationData.get(1);
-    byte[] extraData = new byte[header0.length + header1.length + 6];
-    extraData[0] = (byte) (header0.length >> 8);
-    extraData[1] = (byte) (header0.length & 0xFF);
-    System.arraycopy(header0, 0, extraData, 2, header0.length);
-    extraData[header0.length + 2] = 0;
-    extraData[header0.length + 3] = 0;
-    extraData[header0.length + 4] = (byte) (header1.length >> 8);
-    extraData[header0.length + 5] = (byte) (header1.length & 0xFF);
-    System.arraycopy(header1, 0, extraData, header0.length + 6, header1.length);
-    return extraData;
-  }
-
-  @Nullable
-  private static byte[] getFlacExtraData(List<byte[]> initializationData) {
-    for (int i = 0; i < initializationData.size(); i++) {
-      byte[] out = extractFlacStreamInfo(initializationData.get(i));
-      if (out != null) {
-        return out;
-      }
-    }
-    return null;
-  }
-
-  @Nullable
-  private static byte[] extractFlacStreamInfo(byte[] data) {
-    int offset = 0;
-    if (arrayStartsWith(data, flacStreamMarker)) {
-      offset = flacStreamMarker.length;
-    }
-
-    if (data.length - offset == FLAC_STREAM_INFO_DATA_SIZE) {
-      byte[] streamInfo = new byte[FLAC_STREAM_INFO_DATA_SIZE];
-      System.arraycopy(data, offset, streamInfo, 0, FLAC_STREAM_INFO_DATA_SIZE);
-      return streamInfo;
-    }
-
-    if (data.length >= offset + FLAC_METADATA_BLOCK_HEADER_SIZE) {
-      int type = data[offset] & 0x7F;
-      int length =
-          ((data[offset + 1] & 0xFF) << 16)
-              | ((data[offset + 2] & 0xFF) << 8)
-              | (data[offset + 3] & 0xFF);
-
-      if (type == FLAC_METADATA_TYPE_STREAM_INFO
-          && length == FLAC_STREAM_INFO_DATA_SIZE
-          && data.length >= offset + FLAC_METADATA_BLOCK_HEADER_SIZE + FLAC_STREAM_INFO_DATA_SIZE) {
-        byte[] streamInfo = new byte[FLAC_STREAM_INFO_DATA_SIZE];
-        System.arraycopy(
-            data,
-            offset + FLAC_METADATA_BLOCK_HEADER_SIZE,
-            streamInfo,
-            0,
-            FLAC_STREAM_INFO_DATA_SIZE);
-        return streamInfo;
-      }
-    }
-
-    return null;
-  }
-
-  private static boolean arrayStartsWith(byte[] data, byte[] prefix) {
-    if (data.length < prefix.length) {
-      return false;
-    }
-    for (int i = 0; i < prefix.length; i++) {
-      if (data[i] != prefix[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   private native long ffmpegInitialize(
       String codecName,
       @Nullable byte[] extraData,
       boolean outputFloat,
       int rawSampleRate,
-      int rawChannelCount);
+      int rawChannelCount,
+      int rawBlockAlign,
+      int rawBitsPerCodedSample,
+      int rawBitRate);
 
   private native int ffmpegDecode(
       long context,
       ByteBuffer inputData,
+      int inputOffset,
       int inputSize,
+      long inputTimeUs,
+      SimpleDecoderOutputBuffer decoderOutputBuffer,
+      ByteBuffer outputData,
+      int outputSize);
+
+  private native int ffmpegDrain(
+      long context,
       SimpleDecoderOutputBuffer decoderOutputBuffer,
       ByteBuffer outputData,
       int outputSize);
@@ -315,6 +277,8 @@ public final class FfmpegAudioDecoder
   private native int ffmpegGetChannelCount(long context);
 
   private native int ffmpegGetSampleRate(long context);
+
+  private native long ffmpegGetLastOutputTimeUs(long context);
 
   private native long ffmpegReset(long context, @Nullable byte[] extraData);
 

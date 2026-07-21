@@ -639,13 +639,13 @@ public class DefaultRenderersFactory implements RenderersFactory {
 
     try {
       // LINT.IfChange
-      Class<?> clazz =
-          Class.forName("androidx.media3.decoder.ffmpeg.ExperimentalFfmpegVideoRenderer");
+      Class<?> clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegVideoRenderer");
       // Full class names used for media3 constructor args so the LINT rule triggers if any of them
       // move.
       @SuppressWarnings("UnnecessarilyFullyQualified")
       Constructor<?> constructor =
           clazz.getConstructor(
+              Context.class,
               long.class,
               Handler.class,
               androidx.media3.exoplayer.video.VideoRendererEventListener.class,
@@ -654,6 +654,7 @@ public class DefaultRenderersFactory implements RenderersFactory {
       Renderer renderer =
           (Renderer)
               constructor.newInstance(
+                  context,
                   allowedVideoJoiningTimeMs,
                   eventHandler,
                   eventListener,
@@ -782,29 +783,6 @@ public class DefaultRenderersFactory implements RenderersFactory {
 
     try {
       // LINT.IfChange
-      Class<?> clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer");
-      // Full class names used for media3 constructor args so the LINT rule triggers if any of them
-      // move.
-      @SuppressWarnings("UnnecessarilyFullyQualified")
-      Constructor<?> constructor =
-          clazz.getConstructor(
-              Handler.class,
-              androidx.media3.exoplayer.audio.AudioRendererEventListener.class,
-              androidx.media3.exoplayer.audio.AudioSink.class);
-      // LINT.ThenChange(../../../../../../proguard-rules.txt)
-      Renderer renderer =
-          (Renderer) constructor.newInstance(eventHandler, eventListener, audioSink);
-      out.add(extensionRendererIndex++, renderer);
-      Log.i(TAG, "Loaded FfmpegAudioRenderer.");
-    } catch (ClassNotFoundException e) {
-      // Expected if the app was built without the extension.
-    } catch (Exception e) {
-      // The extension is present, but instantiation failed.
-      throw new IllegalStateException("Error instantiating FFmpeg extension", e);
-    }
-
-    try {
-      // LINT.IfChange
       Class<?> builderClass =
           Class.forName("androidx.media3.decoder.iamf.IamfAudioRenderer$Builder");
       // Full class names used for media3 constructor args so the LINT rule triggers if any move.
@@ -852,6 +830,29 @@ public class DefaultRenderersFactory implements RenderersFactory {
     } catch (Exception e) {
       // The extension is present, but instantiation failed.
       throw new IllegalStateException("Error instantiating MPEG-H extension", e);
+    }
+
+    try {
+      // LINT.IfChange
+      Class<?> clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegAudioRenderer");
+      // Full class names used for media3 constructor args so the LINT rule triggers if any of them
+      // move.
+      @SuppressWarnings("UnnecessarilyFullyQualified")
+      Constructor<?> constructor =
+          clazz.getConstructor(
+              Handler.class,
+              androidx.media3.exoplayer.audio.AudioRendererEventListener.class,
+              androidx.media3.exoplayer.audio.AudioSink.class);
+      // LINT.ThenChange(../../../../../../proguard-rules.txt)
+      Renderer renderer =
+          (Renderer) constructor.newInstance(eventHandler, eventListener, audioSink);
+      out.add(extensionRendererIndex++, renderer);
+      Log.i(TAG, "Loaded FfmpegAudioRenderer.");
+    } catch (ClassNotFoundException e) {
+      // Expected if the app was built without the extension.
+    } catch (Exception e) {
+      // The extension is present, but instantiation failed.
+      throw new IllegalStateException("Error instantiating FFmpeg extension", e);
     }
   }
 
