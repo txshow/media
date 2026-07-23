@@ -136,8 +136,8 @@ public final class NalUnitUtil {
   public static final int H265_NAL_UNIT_TYPE_SUFFIX_SEI = 40;
 
   /**
-   * H.265 unspecified NAL unit type carrying a Dolby Vision RPU (enhancement metadata) in
-   * profile 5/7/8 streams.
+   * H.265 unspecified NAL unit type carrying a Dolby Vision RPU (enhancement metadata) in profile
+   * 5/7/8 streams.
    */
   public static final int H265_NAL_UNIT_TYPE_DV_RPU = 62;
 
@@ -468,14 +468,28 @@ public final class NalUnitUtil {
     public final int picParameterSetId;
     public final int seqParameterSetId;
     public final boolean bottomFieldPicOrderInFramePresentFlag;
+    public final int numRefIdxL0DefaultActiveMinus1;
 
     public PpsData(
         int picParameterSetId,
         int seqParameterSetId,
         boolean bottomFieldPicOrderInFramePresentFlag) {
+      this(
+          picParameterSetId,
+          seqParameterSetId,
+          bottomFieldPicOrderInFramePresentFlag,
+          /* numRefIdxL0DefaultActiveMinus1= */ C.INDEX_UNSET);
+    }
+
+    public PpsData(
+        int picParameterSetId,
+        int seqParameterSetId,
+        boolean bottomFieldPicOrderInFramePresentFlag,
+        int numRefIdxL0DefaultActiveMinus1) {
       this.picParameterSetId = picParameterSetId;
       this.seqParameterSetId = seqParameterSetId;
       this.bottomFieldPicOrderInFramePresentFlag = bottomFieldPicOrderInFramePresentFlag;
+      this.numRefIdxL0DefaultActiveMinus1 = numRefIdxL0DefaultActiveMinus1;
     }
   }
 
@@ -1805,7 +1819,35 @@ public final class NalUnitUtil {
     int seqParameterSetId = data.readUnsignedExpGolombCodedInt();
     data.skipBit(); // entropy_coding_mode_flag
     boolean bottomFieldPicOrderInFramePresentFlag = data.readBit();
-    return new PpsData(picParameterSetId, seqParameterSetId, bottomFieldPicOrderInFramePresentFlag);
+    int numSliceGroupsMinus1 = data.readUnsignedExpGolombCodedInt();
+    if (numSliceGroupsMinus1 > 0) {
+      int sliceGroupMapType = data.readUnsignedExpGolombCodedInt();
+      if (sliceGroupMapType == 0) {
+        for (int i = 0; i <= numSliceGroupsMinus1; i++) {
+          data.readUnsignedExpGolombCodedInt(); // run_length_minus1[i]
+        }
+      } else if (sliceGroupMapType == 2) {
+        for (int i = 0; i < numSliceGroupsMinus1; i++) {
+          data.readUnsignedExpGolombCodedInt(); // top_left[i]
+          data.readUnsignedExpGolombCodedInt(); // bottom_right[i]
+        }
+      } else if (sliceGroupMapType == 3 || sliceGroupMapType == 4 || sliceGroupMapType == 5) {
+        data.skipBit(); // slice_group_change_direction_flag
+        data.readUnsignedExpGolombCodedInt(); // slice_group_change_rate_minus1
+      } else if (sliceGroupMapType == 6) {
+        int picSizeInMapUnitsMinus1 = data.readUnsignedExpGolombCodedInt();
+        int sliceGroupIdLength = log2(numSliceGroupsMinus1 + 1, RoundingMode.CEILING);
+        for (int i = 0; i <= picSizeInMapUnitsMinus1; i++) {
+          data.skipBits(sliceGroupIdLength); // slice_group_id[i]
+        }
+      }
+    }
+    int numRefIdxL0DefaultActiveMinus1 = data.readUnsignedExpGolombCodedInt();
+    return new PpsData(
+        picParameterSetId,
+        seqParameterSetId,
+        bottomFieldPicOrderInFramePresentFlag,
+        numRefIdxL0DefaultActiveMinus1);
   }
 
   /**

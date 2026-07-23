@@ -40,8 +40,7 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
 
   /**
    * Flags controlling elementary stream readers' behavior. Possible flag values are {@link
-   * #FLAG_ALLOW_NON_IDR_KEYFRAMES}, {@link #FLAG_IGNORE_AAC_STREAM}, {@link
-   * #FLAG_IGNORE_H264_STREAM}, {@link #FLAG_DETECT_ACCESS_UNITS}, {@link
+   * #FLAG_IGNORE_AAC_STREAM}, {@link #FLAG_IGNORE_H264_STREAM}, {@link
    * #FLAG_IGNORE_SPLICE_INFO_STREAM} and {@link #FLAG_OVERRIDE_CAPTION_DESCRIPTORS}.
    */
   @Documented
@@ -50,20 +49,12 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
   @IntDef(
       flag = true,
       value = {
-        FLAG_ALLOW_NON_IDR_KEYFRAMES,
         FLAG_IGNORE_AAC_STREAM,
         FLAG_IGNORE_H264_STREAM,
-        FLAG_DETECT_ACCESS_UNITS,
         FLAG_IGNORE_SPLICE_INFO_STREAM,
         FLAG_OVERRIDE_CAPTION_DESCRIPTORS
       })
   public @interface Flags {}
-
-  /**
-   * When extracting H.264 samples, whether to treat samples consisting of non-IDR I slices as
-   * synchronization samples (key-frames).
-   */
-  public static final int FLAG_ALLOW_NON_IDR_KEYFRAMES = 1;
 
   /**
    * Prevents the creation of {@link AdtsReader} and {@link LatmReader} instances. This flag should
@@ -78,13 +69,6 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
    * PMT.
    */
   public static final int FLAG_IGNORE_H264_STREAM = 1 << 2;
-
-  /**
-   * When extracting H.264 samples, whether to split the input stream into access units (samples)
-   * based on slice headers. This flag should be disabled if the stream contains access unit
-   * delimiters (AUDs).
-   */
-  public static final int FLAG_DETECT_ACCESS_UNITS = 1 << 3;
 
   /**
    * Prevents the creation of {@link SectionPayloadReader}s for splice information sections
@@ -200,12 +184,7 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
       case TsExtractor.TS_STREAM_TYPE_H264:
         return isSet(FLAG_IGNORE_H264_STREAM)
             ? null
-            : new PesReader(
-                new H264Reader(
-                    buildSeiReader(esInfo),
-                    isSet(FLAG_ALLOW_NON_IDR_KEYFRAMES),
-                    isSet(FLAG_DETECT_ACCESS_UNITS),
-                    MimeTypes.VIDEO_MP2T));
+            : new PesReader(new H264Reader(buildSeiReader(esInfo), MimeTypes.VIDEO_MP2T));
       case TsExtractor.TS_STREAM_TYPE_H265:
         @Nullable
         DolbyVisionDescriptor dolbyVisionDescriptor =
