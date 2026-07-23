@@ -16,7 +16,6 @@
 package androidx.media3.extractor.ts;
 
 import static androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_DETECT_ACCESS_UNITS;
-import static androidx.media3.extractor.ts.DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS;
 import static androidx.media3.extractor.ts.TsExtractor.DEFAULT_TIMESTAMP_SEARCH_BYTES;
 import static androidx.media3.extractor.ts.TsExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA;
 import static androidx.media3.extractor.ts.TsExtractor.MODE_MULTI_PMT;
@@ -126,11 +125,7 @@ public final class TsExtractorTest {
   @Test
   public void sampleWithH264AndDtsAudio() throws Exception {
     ExtractorAsserts.assertBehavior(
-        getExtractorFactory(
-            subtitlesParsedDuringExtraction,
-            MODE_SINGLE_PMT,
-            new TimestampAdjuster(0),
-            new DefaultTsPayloadReaderFactory(FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)),
+        getExtractorFactory(subtitlesParsedDuringExtraction),
         "media/ts/sample_h264_dts_audio.ts",
         simulationConfig);
   }
@@ -192,11 +187,7 @@ public final class TsExtractorTest {
   @Test
   public void sampleWithDtsHdMa() throws Exception {
     ExtractorAsserts.assertBehavior(
-        getExtractorFactory(
-            subtitlesParsedDuringExtraction,
-            MODE_SINGLE_PMT,
-            new TimestampAdjuster(0),
-            new DefaultTsPayloadReaderFactory(FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)),
+        getExtractorFactory(subtitlesParsedDuringExtraction),
         "media/ts/sample_dts_hd_ma.ts",
         simulationConfig);
   }
@@ -204,11 +195,7 @@ public final class TsExtractorTest {
   @Test
   public void sampleWithDtsHdAcrossPesBoundary() throws Exception {
     ExtractorAsserts.assertBehavior(
-        getExtractorFactory(
-            subtitlesParsedDuringExtraction,
-            MODE_SINGLE_PMT,
-            new TimestampAdjuster(0),
-            new DefaultTsPayloadReaderFactory(FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)),
+        getExtractorFactory(subtitlesParsedDuringExtraction),
         "media/ts/sample_dts_hd_across_pes.ts",
         simulationConfig);
   }
