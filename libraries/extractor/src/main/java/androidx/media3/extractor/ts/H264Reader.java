@@ -45,9 +45,9 @@ import org.checkerframework.checker.nullness.qual.RequiresNonNull;
 @UnstableApi
 public final class H264Reader implements ElementaryStreamReader {
 
+  private static final int SEI_PAYLOAD_TYPE_RECOVERY_POINT = 6;
+
   private final SeiReader seiReader;
-  private final boolean allowNonIdrKeyframes;
-  private final boolean detectAccessUnits;
   private final String containerMimeType;
   private final NalUnitTargetBuffer sps;
   private final NalUnitTargetBuffer pps;
@@ -73,20 +73,10 @@ public final class H264Reader implements ElementaryStreamReader {
 
   /**
    * @param seiReader An SEI reader for consuming closed caption channels.
-   * @param allowNonIdrKeyframes Whether to treat samples consisting of non-IDR I slices as
-   *     synchronization samples (key-frames).
-   * @param detectAccessUnits Whether to split the input stream into access units (samples) based on
-   *     slice headers. Pass {@code false} if the stream contains access unit delimiters (AUDs).
    * @param containerMimeType The MIME type of the container holding the stream.
    */
-  public H264Reader(
-      SeiReader seiReader,
-      boolean allowNonIdrKeyframes,
-      boolean detectAccessUnits,
-      String containerMimeType) {
+  public H264Reader(SeiReader seiReader, String containerMimeType) {
     this.seiReader = seiReader;
-    this.allowNonIdrKeyframes = allowNonIdrKeyframes;
-    this.detectAccessUnits = detectAccessUnits;
     this.containerMimeType = containerMimeType;
     prefixFlags = new boolean[3];
     sps = new NalUnitTargetBuffer(NalUnitUtil.H264_NAL_UNIT_TYPE_SPS, 128);
@@ -116,7 +106,7 @@ public final class H264Reader implements ElementaryStreamReader {
     idGenerator.generateNewId();
     formatId = idGenerator.getFormatId();
     output = extractorOutput.track(idGenerator.getTrackId(), C.TRACK_TYPE_VIDEO);
-    sampleReader = new SampleReader(output, allowNonIdrKeyframes, detectAccessUnits);
+    sampleReader = new SampleReader(output);
     seiReader.createTracks(extractorOutput, idGenerator);
   }
 
@@ -198,83 +188,78 @@ public final class H264Reader implements ElementaryStreamReader {
 
   @RequiresNonNull("sampleReader")
   private void startNalUnit(long position, int nalUnitType, long pesTimeUs) {
-    if (!hasOutputFormat || sampleReader.needsSpsPps()) {
-      sps.startNalUnit(nalUnitType);
-      pps.startNalUnit(nalUnitType);
-    }
+    sps.startNalUnit(nalUnitType);
+    pps.startNalUnit(nalUnitType);
     sei.startNalUnit(nalUnitType);
     sampleReader.startNalUnit(position, nalUnitType, pesTimeUs, randomAccessIndicator);
   }
 
   @RequiresNonNull("sampleReader")
   private void nalUnitData(byte[] dataArray, int offset, int limit) {
-    if (!hasOutputFormat || sampleReader.needsSpsPps()) {
-      sps.appendToNalUnit(dataArray, offset, limit);
-      pps.appendToNalUnit(dataArray, offset, limit);
-    }
+    sps.appendToNalUnit(dataArray, offset, limit);
+    pps.appendToNalUnit(dataArray, offset, limit);
     sei.appendToNalUnit(dataArray, offset, limit);
     sampleReader.appendToNalUnit(dataArray, offset, limit);
   }
 
   @RequiresNonNull({"output", "sampleReader"})
   private void endNalUnit(long position, int offset, int discardPadding, long pesTimeUs) {
-    if (!hasOutputFormat || sampleReader.needsSpsPps()) {
-      sps.endNalUnit(discardPadding);
-      pps.endNalUnit(discardPadding);
-      if (!hasOutputFormat) {
-        if (sps.isCompleted() && pps.isCompleted()) {
-          List<byte[]> initializationData = new ArrayList<>();
-          initializationData.add(Arrays.copyOf(sps.nalData, sps.nalLength));
-          initializationData.add(Arrays.copyOf(pps.nalData, pps.nalLength));
-          NalUnitUtil.SpsData spsData = NalUnitUtil.parseSpsNalUnit(sps.nalData, 3, sps.nalLength);
-          NalUnitUtil.PpsData ppsData = NalUnitUtil.parsePpsNalUnit(pps.nalData, 3, pps.nalLength);
-          String codecs =
-              CodecSpecificDataUtil.buildAvcCodecString(
-                  spsData.profileIdc,
-                  spsData.constraintsFlagsAndReservedZero2Bits,
-                  spsData.levelIdc);
-          output.format(
-              new Format.Builder()
-                  .setId(formatId)
-                  .setContainerMimeType(containerMimeType)
-                  .setSampleMimeType(MimeTypes.VIDEO_H264)
-                  .setCodecs(codecs)
-                  .setWidth(spsData.width)
-                  .setHeight(spsData.height)
-                  .setColorInfo(
-                      new ColorInfo.Builder()
-                          .setColorSpace(spsData.colorSpace)
-                          .setColorRange(spsData.colorRange)
-                          .setColorTransfer(spsData.colorTransfer)
-                          .setLumaBitdepth(spsData.bitDepthLumaMinus8 + 8)
-                          .setChromaBitdepth(spsData.bitDepthChromaMinus8 + 8)
-                          .build())
-                  .setPixelWidthHeightRatio(spsData.pixelWidthHeightRatio)
-                  .setInitializationData(initializationData)
-                  .setMaxNumReorderSamples(spsData.maxNumReorderFrames)
-                  .build());
-          hasOutputFormat = true;
-          seiReader.setReorderingQueueSize(spsData.maxNumReorderFrames);
-          sampleReader.putSps(spsData);
-          sampleReader.putPps(ppsData);
-          sps.reset();
-          pps.reset();
-        }
-      } else if (sps.isCompleted()) {
+    sps.endNalUnit(discardPadding);
+    pps.endNalUnit(discardPadding);
+    if (!hasOutputFormat) {
+      if (sps.isCompleted() && pps.isCompleted()) {
+        List<byte[]> initializationData = new ArrayList<>();
+        initializationData.add(Arrays.copyOf(sps.nalData, sps.nalLength));
+        initializationData.add(Arrays.copyOf(pps.nalData, pps.nalLength));
         NalUnitUtil.SpsData spsData = NalUnitUtil.parseSpsNalUnit(sps.nalData, 3, sps.nalLength);
+        NalUnitUtil.PpsData ppsData = NalUnitUtil.parsePpsNalUnit(pps.nalData, 3, pps.nalLength);
+        String codecs =
+            CodecSpecificDataUtil.buildAvcCodecString(
+                spsData.profileIdc, spsData.constraintsFlagsAndReservedZero2Bits, spsData.levelIdc);
+        output.format(
+            new Format.Builder()
+                .setId(formatId)
+                .setContainerMimeType(containerMimeType)
+                .setSampleMimeType(MimeTypes.VIDEO_H264)
+                .setCodecs(codecs)
+                .setWidth(spsData.width)
+                .setHeight(spsData.height)
+                .setColorInfo(
+                    new ColorInfo.Builder()
+                        .setColorSpace(spsData.colorSpace)
+                        .setColorRange(spsData.colorRange)
+                        .setColorTransfer(spsData.colorTransfer)
+                        .setLumaBitdepth(spsData.bitDepthLumaMinus8 + 8)
+                        .setChromaBitdepth(spsData.bitDepthChromaMinus8 + 8)
+                        .build())
+                .setPixelWidthHeightRatio(spsData.pixelWidthHeightRatio)
+                .setInitializationData(initializationData)
+                .setMaxNumReorderSamples(spsData.maxNumReorderFrames)
+                .build());
+        hasOutputFormat = true;
         seiReader.setReorderingQueueSize(spsData.maxNumReorderFrames);
         sampleReader.putSps(spsData);
-        sps.reset();
-      } else if (pps.isCompleted()) {
-        NalUnitUtil.PpsData ppsData = NalUnitUtil.parsePpsNalUnit(pps.nalData, 3, pps.nalLength);
         sampleReader.putPps(ppsData);
+        sps.reset();
         pps.reset();
       }
+    } else if (sps.isCompleted()) {
+      NalUnitUtil.SpsData spsData = NalUnitUtil.parseSpsNalUnit(sps.nalData, 3, sps.nalLength);
+      seiReader.setReorderingQueueSize(spsData.maxNumReorderFrames);
+      sampleReader.putSps(spsData);
+      sps.reset();
+    } else if (pps.isCompleted()) {
+      NalUnitUtil.PpsData ppsData = NalUnitUtil.parsePpsNalUnit(pps.nalData, 3, pps.nalLength);
+      sampleReader.putPps(ppsData);
+      pps.reset();
     }
     if (sei.endNalUnit(discardPadding)) {
       int unescapedLength = NalUnitUtil.unescapeStream(sei.nalData, sei.nalLength);
       seiWrapper.reset(sei.nalData, unescapedLength);
       seiWrapper.setPosition(4); // NAL prefix and nal_unit() header.
+      if (containsImmediateRecoveryPoint(seiWrapper)) {
+        sampleReader.onRecoveryPoint();
+      }
       seiReader.consume(pesTimeUs, seiWrapper);
     }
     boolean sampleIsKeyFrame = sampleReader.endNalUnit(position, offset, hasOutputFormat);
@@ -284,6 +269,41 @@ public final class H264Reader implements ElementaryStreamReader {
       // keyframes until we see another random access indicator.
       randomAccessIndicator = false;
     }
+  }
+
+  private static boolean containsImmediateRecoveryPoint(ParsableByteArray seiBuffer) {
+    int initialPosition = seiBuffer.getPosition();
+    boolean immediateRecoveryPoint = false;
+    while (seiBuffer.bytesLeft() > 1 /* last byte will be rbsp_trailing_bits */) {
+      int payloadType = readNon255TerminatedValue(seiBuffer);
+      int payloadSize = readNon255TerminatedValue(seiBuffer);
+      if (payloadType == -1 || payloadSize == -1 || payloadSize > seiBuffer.bytesLeft()) {
+        break;
+      }
+      if (payloadType == SEI_PAYLOAD_TYPE_RECOVERY_POINT
+          && payloadSize > 0
+          // recovery_frame_cnt is an unsigned Exp-Golomb value, for which 0 is encoded as '1'.
+          && (seiBuffer.getData()[seiBuffer.getPosition()] & 0x80) != 0) {
+        immediateRecoveryPoint = true;
+        break;
+      }
+      seiBuffer.skipBytes(payloadSize);
+    }
+    seiBuffer.setPosition(initialPosition);
+    return immediateRecoveryPoint;
+  }
+
+  private static int readNon255TerminatedValue(ParsableByteArray buffer) {
+    int value = 0;
+    int nextByte;
+    do {
+      if (buffer.bytesLeft() == 0) {
+        return -1;
+      }
+      nextByte = buffer.readUnsignedByte();
+      value += nextByte;
+    } while (nextByte == 0xFF);
+    return value;
   }
 
   @EnsuresNonNull({"output", "sampleReader"})
@@ -298,8 +318,6 @@ public final class H264Reader implements ElementaryStreamReader {
     private static final int DEFAULT_BUFFER_SIZE = 128;
 
     private final TrackOutput output;
-    private final boolean allowNonIdrKeyframes;
-    private final boolean detectAccessUnits;
     private final SparseArray<NalUnitUtil.SpsData> sps;
     private final SparseArray<NalUnitUtil.PpsData> pps;
     private final ParsableNalUnitBitArray bitArray;
@@ -317,16 +335,15 @@ public final class H264Reader implements ElementaryStreamReader {
 
     // Per sample state that gets reset at the start of each sample.
     private boolean readingSample;
+    private boolean audPendingForVcl;
+    private boolean recoveryPointPending;
     private long samplePosition;
     private long sampleTimeUs;
     private boolean sampleIsKeyframe;
     private boolean randomAccessIndicator;
 
-    public SampleReader(
-        TrackOutput output, boolean allowNonIdrKeyframes, boolean detectAccessUnits) {
+    public SampleReader(TrackOutput output) {
       this.output = output;
-      this.allowNonIdrKeyframes = allowNonIdrKeyframes;
-      this.detectAccessUnits = detectAccessUnits;
       sps = new SparseArray<>();
       pps = new SparseArray<>();
       previousSliceHeader = new SliceHeaderData();
@@ -334,10 +351,6 @@ public final class H264Reader implements ElementaryStreamReader {
       buffer = new byte[DEFAULT_BUFFER_SIZE];
       bitArray = new ParsableNalUnitBitArray(buffer, 0, 0);
       reset();
-    }
-
-    public boolean needsSpsPps() {
-      return detectAccessUnits;
     }
 
     public void putSps(NalUnitUtil.SpsData spsData) {
@@ -351,7 +364,13 @@ public final class H264Reader implements ElementaryStreamReader {
     public void reset() {
       isFilling = false;
       readingSample = false;
+      audPendingForVcl = false;
+      recoveryPointPending = false;
       sliceHeader.clear();
+    }
+
+    public void onRecoveryPoint() {
+      recoveryPointPending = true;
     }
 
     public void startNalUnit(
@@ -360,11 +379,10 @@ public final class H264Reader implements ElementaryStreamReader {
       nalUnitTimeUs = pesTimeUs;
       nalUnitStartPosition = position;
       this.randomAccessIndicator = randomAccessIndicator;
-      if ((allowNonIdrKeyframes && nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_NON_IDR)
-          || (detectAccessUnits
-              && (nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_IDR
-                  || nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_NON_IDR
-                  || nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_PARTITION_A))) {
+      if (nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_AUD) {
+        recoveryPointPending = false;
+      }
+      if (isVclNalUnit(nalUnitType)) {
         // Store the previous header and prepare to populate the new one.
         SliceHeaderData newSliceHeader = previousSliceHeader;
         previousSliceHeader = sliceHeader;
@@ -411,12 +429,6 @@ public final class H264Reader implements ElementaryStreamReader {
         return;
       }
       int sliceType = bitArray.readUnsignedExpGolombCodedInt();
-      if (!detectAccessUnits) {
-        // There are AUDs in the stream so the rest of the header can be ignored.
-        isFilling = false;
-        sliceHeader.setSliceType(sliceType);
-        return;
-      }
       if (!bitArray.canReadExpGolombCodedNum()) {
         return;
       }
@@ -491,6 +503,7 @@ public final class H264Reader implements ElementaryStreamReader {
       }
       sliceHeader.setAll(
           spsData,
+          ppsData,
           nalRefIdc,
           sliceType,
           frameNum,
@@ -508,8 +521,11 @@ public final class H264Reader implements ElementaryStreamReader {
     }
 
     public boolean endNalUnit(long position, int offset, boolean hasOutputFormat) {
-      if (nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_AUD
-          || (detectAccessUnits && sliceHeader.isFirstVclNalUnitOfPicture(previousSliceHeader))) {
+      boolean isAud = nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_AUD;
+      boolean isVcl = isVclNalUnit(nalUnitType);
+      boolean isFirstVclOfPicture =
+          isVcl && sliceHeader.isFirstVclNalUnitOfPicture(previousSliceHeader);
+      if (isAud || (isFirstVclOfPicture && !audPendingForVcl)) {
         // If the NAL unit ending is the start of a new sample, output the previous one.
         if (hasOutputFormat && readingSample) {
           int nalUnitLength = (int) (position - nalUnitStartPosition);
@@ -520,18 +536,33 @@ public final class H264Reader implements ElementaryStreamReader {
         sampleIsKeyframe = false;
         readingSample = true;
       }
-      setSampleIsKeyframe();
-      // Reset NAL unit type to avoid stale state
+      if (isAud) {
+        audPendingForVcl = true;
+      } else if (isVcl) {
+        audPendingForVcl = false;
+      }
+      updateSampleIsKeyframe();
+      // Reset the NAL unit type to avoid stale state.
       nalUnitType = NalUnitUtil.H264_NAL_UNIT_TYPE_UNSPECIFIED;
       return sampleIsKeyframe;
     }
 
-    private void setSampleIsKeyframe() {
+    private static boolean isVclNalUnit(int nalUnitType) {
+      return nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_IDR
+          || nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_NON_IDR
+          || nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_PARTITION_A;
+    }
+
+    private void updateSampleIsKeyframe() {
       boolean treatIFrameAsKeyframe =
-          allowNonIdrKeyframes ? sliceHeader.isISlice() : randomAccessIndicator;
+          randomAccessIndicator || sliceHeader.isIFrameWithFewReferences();
       sampleIsKeyframe |=
           nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_IDR
-              || (treatIFrameAsKeyframe && nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_NON_IDR);
+              || ((recoveryPointPending || treatIFrameAsKeyframe)
+                  && nalUnitType == NalUnitUtil.H264_NAL_UNIT_TYPE_NON_IDR);
+      if (isVclNalUnit(nalUnitType)) {
+        recoveryPointPending = false;
+      }
     }
 
     private void outputSample(int offset) {
@@ -552,6 +583,7 @@ public final class H264Reader implements ElementaryStreamReader {
       private boolean hasSliceType;
 
       @Nullable private SpsData spsData;
+      @Nullable private NalUnitUtil.PpsData ppsData;
       private int nalRefIdc;
       private int sliceType;
       private int frameNum;
@@ -571,13 +603,9 @@ public final class H264Reader implements ElementaryStreamReader {
         isComplete = false;
       }
 
-      public void setSliceType(int sliceType) {
-        this.sliceType = sliceType;
-        hasSliceType = true;
-      }
-
       public void setAll(
           SpsData spsData,
+          NalUnitUtil.PpsData ppsData,
           int nalRefIdc,
           int sliceType,
           int frameNum,
@@ -592,6 +620,7 @@ public final class H264Reader implements ElementaryStreamReader {
           int deltaPicOrderCnt0,
           int deltaPicOrderCnt1) {
         this.spsData = spsData;
+        this.ppsData = ppsData;
         this.nalRefIdc = nalRefIdc;
         this.sliceType = sliceType;
         this.frameNum = frameNum;
@@ -611,6 +640,12 @@ public final class H264Reader implements ElementaryStreamReader {
 
       public boolean isISlice() {
         return hasSliceType && (sliceType == SLICE_TYPE_ALL_I || sliceType == SLICE_TYPE_I);
+      }
+
+      public boolean isIFrameWithFewReferences() {
+        return isISlice()
+            && checkNotNull(spsData).maxNumRefFrames <= 1
+            && checkNotNull(ppsData).numRefIdxL0DefaultActiveMinus1 == 0;
       }
 
       private boolean isFirstVclNalUnitOfPicture(SliceHeaderData other) {
