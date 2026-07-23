@@ -42,8 +42,7 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
    * Flags controlling elementary stream readers' behavior. Possible flag values are {@link
    * #FLAG_ALLOW_NON_IDR_KEYFRAMES}, {@link #FLAG_IGNORE_AAC_STREAM}, {@link
    * #FLAG_IGNORE_H264_STREAM}, {@link #FLAG_DETECT_ACCESS_UNITS}, {@link
-   * #FLAG_IGNORE_SPLICE_INFO_STREAM}, {@link #FLAG_OVERRIDE_CAPTION_DESCRIPTORS} and {@link
-   * #FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS}.
+   * #FLAG_IGNORE_SPLICE_INFO_STREAM} and {@link #FLAG_OVERRIDE_CAPTION_DESCRIPTORS}.
    */
   @Documented
   @Retention(RetentionPolicy.SOURCE)
@@ -56,8 +55,7 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
         FLAG_IGNORE_H264_STREAM,
         FLAG_DETECT_ACCESS_UNITS,
         FLAG_IGNORE_SPLICE_INFO_STREAM,
-        FLAG_OVERRIDE_CAPTION_DESCRIPTORS,
-        FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS
+        FLAG_OVERRIDE_CAPTION_DESCRIPTORS
       })
   public @interface Flags {}
 
@@ -102,14 +100,7 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
    */
   public static final int FLAG_OVERRIDE_CAPTION_DESCRIPTORS = 1 << 5;
 
-  /**
-   * Sets whether HDMV DTS audio streams will be handled. If this flag is set, SCTE subtitles will
-   * not be detected, as they share the same elementary stream type as HDMV DTS.
-   */
-  public static final int FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS = 1 << 6;
-
   private static final int DESCRIPTOR_TAG_CAPTION_SERVICE = 0x86;
-
   private final @Flags int flags;
   private final List<Format> closedCaptionFormats;
 
@@ -174,12 +165,9 @@ public final class DefaultTsPayloadReaderFactory implements TsPayloadReader.Fact
         return new PesReader(
             new Ac4Reader(esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T));
       case TsExtractor.TS_STREAM_TYPE_HDMV_DTS:
+        return new PesReader(
+            new DtsProbeReader(esInfo.language, esInfo.getRoleFlags(), MimeTypes.VIDEO_MP2T));
       case TsExtractor.TS_STREAM_TYPE_HDMV_DTS_AUTO:
-        if (!isSet(FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
-            && streamType != TsExtractor.TS_STREAM_TYPE_HDMV_DTS_AUTO) {
-          return null;
-        }
-      // Fall through.
       case TsExtractor.TS_STREAM_TYPE_DTS:
       case TsExtractor.TS_STREAM_TYPE_DTS_HD:
       case TsExtractor.TS_STREAM_TYPE_HDMV_DTS_HD_HRA:
