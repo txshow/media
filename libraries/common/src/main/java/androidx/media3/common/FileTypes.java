@@ -69,6 +69,7 @@ public final class FileTypes {
    *   <li>{@link #DSF}
    *   <li>{@link #DFF}
    *   <li>{@link #DTS}
+   *   <li>{@link #MMT_TLV}
    * </ul>
    */
   @Documented
@@ -76,7 +77,7 @@ public final class FileTypes {
   @Target(TYPE_USE)
   @IntDef({
     UNKNOWN, AC3, AC4, ADTS, AMR, FLAC, FLV, MATROSKA, MP3, MP4, OGG, PS, TS, WAV, WEBVTT, JPEG,
-    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, ISO, M2TS, DSF, DFF, DTS
+    MIDI, AVI, PNG, WEBP, BMP, HEIF, AVIF, ASF, RM, ISO, M2TS, DSF, DFF, DTS, MMT_TLV
   })
   public @interface Type {}
 
@@ -170,6 +171,9 @@ public final class FileTypes {
   /** File type for the raw DTS audio format. */
   public static final int DTS = 28;
 
+  /** File type for MMT (MPEG Media Transport) carried in TLV packets. */
+  public static final int MMT_TLV = 29;
+
   @VisibleForTesting /* package */ static final String HEADER_CONTENT_TYPE = "Content-Type";
 
   private static final String EXTENSION_AC3 = ".ac3";
@@ -224,6 +228,9 @@ public final class FileTypes {
   private static final String EXTENSION_DSF = ".dsf";
   private static final String EXTENSION_DFF = ".dff";
   private static final String EXTENSION_DTS = ".dts";
+  private static final String EXTENSION_MMT = ".mmt";
+  private static final String EXTENSION_MMTS = ".mmts";
+  private static final String EXTENSION_TLV = ".tlv";
 
   private FileTypes() {}
 
@@ -320,6 +327,8 @@ public final class FileTypes {
       case MimeTypes.AUDIO_DTS_EXPRESS:
       case MimeTypes.AUDIO_DTS_UHD_P2:
         return FileTypes.DTS;
+      case MimeTypes.VIDEO_MMT_TLV:
+        return FileTypes.MMT_TLV;
       default:
         return FileTypes.UNKNOWN;
     }
@@ -418,6 +427,10 @@ public final class FileTypes {
       return FileTypes.DFF;
     } else if (filename.endsWith(EXTENSION_DTS)) {
       return FileTypes.DTS;
+    } else if (filename.endsWith(EXTENSION_MMT)
+        || filename.endsWith(EXTENSION_MMTS)
+        || filename.endsWith(EXTENSION_TLV)) {
+      return FileTypes.MMT_TLV;
     } else {
       return FileTypes.UNKNOWN;
     }

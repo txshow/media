@@ -41,6 +41,7 @@ import androidx.media3.extractor.flv.FlvExtractor;
 import androidx.media3.extractor.heif.HeifExtractor;
 import androidx.media3.extractor.jpeg.JpegExtractor;
 import androidx.media3.extractor.mkv.MatroskaExtractor;
+import androidx.media3.extractor.mmt.TlvExtractor;
 import androidx.media3.extractor.mp3.Mp3Extractor;
 import androidx.media3.extractor.mp4.FragmentedMp4Extractor;
 import androidx.media3.extractor.mp4.Mp4Extractor;
@@ -106,6 +107,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>DSF ({@link DsfExtractor})
  *   <li>DFF ({@link DffExtractor})
  *   <li>DTS ({@link DtsExtractor})
+ *   <li>MMT/TLV ({@link TlvExtractor})
  *   <li>MIDI, if available, the MIDI extension's {@code androidx.media3.decoder.midi.MidiExtractor}
  *       is used.
  * </ul>
@@ -127,6 +129,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
         FileTypes.PS,
         FileTypes.OGG,
         FileTypes.TS,
+        FileTypes.MMT_TLV,
         FileTypes.MATROSKA,
         FileTypes.ADTS,
         FileTypes.AC3,
@@ -660,6 +663,12 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
         break;
       case FileTypes.DTS:
         extractors.add(new DtsExtractor());
+        break;
+      case FileTypes.MMT_TLV:
+        extractors.add(
+            new TlvExtractor(
+                subtitleParserFactory,
+                textTrackTranscodingEnabled ? 0 : TlvExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA));
         break;
       case FileTypes.WEBVTT:
       case FileTypes.UNKNOWN:

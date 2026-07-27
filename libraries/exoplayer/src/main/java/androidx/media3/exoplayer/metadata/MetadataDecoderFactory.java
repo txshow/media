@@ -24,6 +24,7 @@ import androidx.media3.extractor.metadata.dvbsi.AppInfoTableDecoder;
 import androidx.media3.extractor.metadata.emsg.EventMessageDecoder;
 import androidx.media3.extractor.metadata.icy.IcyDecoder;
 import androidx.media3.extractor.metadata.id3.Id3Decoder;
+import androidx.media3.extractor.metadata.mmt.MmtDataDecoder;
 import androidx.media3.extractor.metadata.scte35.SpliceInfoDecoder;
 
 /** A factory for {@link MetadataDecoder} instances. */
@@ -58,6 +59,7 @@ public interface MetadataDecoderFactory {
    *   <li>EMSG ({@link EventMessageDecoder})
    *   <li>SCTE-35 ({@link SpliceInfoDecoder})
    *   <li>ICY ({@link IcyDecoder})
+   *   <li>MMT application and general data ({@link MmtDataDecoder})
    * </ul>
    */
   MetadataDecoderFactory DEFAULT =
@@ -70,7 +72,8 @@ public interface MetadataDecoderFactory {
               || MimeTypes.APPLICATION_EMSG.equals(mimeType)
               || MimeTypes.APPLICATION_SCTE35.equals(mimeType)
               || MimeTypes.APPLICATION_ICY.equals(mimeType)
-              || MimeTypes.APPLICATION_AIT.equals(mimeType);
+              || MimeTypes.APPLICATION_AIT.equals(mimeType)
+              || MimeTypes.APPLICATION_MMT_DATA.equals(mimeType);
         }
 
         @Override
@@ -88,6 +91,8 @@ public interface MetadataDecoderFactory {
                 return new IcyDecoder();
               case MimeTypes.APPLICATION_AIT:
                 return new AppInfoTableDecoder();
+              case MimeTypes.APPLICATION_MMT_DATA:
+                return new MmtDataDecoder();
               default:
                 break;
             }
