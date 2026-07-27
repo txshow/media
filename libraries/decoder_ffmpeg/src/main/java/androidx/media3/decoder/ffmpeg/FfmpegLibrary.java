@@ -294,6 +294,8 @@ public final class FfmpegLibrary {
         return "mp1";
       case MimeTypes.AUDIO_MPEG_L2:
         return "mp2";
+      case MimeTypes.AUDIO_MP4_ALS:
+        return "als";
       case MimeTypes.AUDIO_AC3:
         return "ac3";
       case MimeTypes.AUDIO_E_AC3:

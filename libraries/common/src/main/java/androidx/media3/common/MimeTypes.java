@@ -53,6 +53,7 @@ public final class MimeTypes {
   @UnstableApi public static final String VIDEO_VP9 = BASE_TYPE_VIDEO + "/x-vnd.on2.vp9";
   public static final String VIDEO_AV1 = BASE_TYPE_VIDEO + "/av01";
   public static final String VIDEO_MP2T = BASE_TYPE_VIDEO + "/mp2t";
+  @UnstableApi public static final String VIDEO_MMT_TLV = BASE_TYPE_VIDEO + "/mmt-tlv";
   public static final String VIDEO_MP4V = BASE_TYPE_VIDEO + "/mp4v-es";
   public static final String VIDEO_MPEG = BASE_TYPE_VIDEO + "/mpeg";
   public static final String VIDEO_PS = BASE_TYPE_VIDEO + "/mp2p";
@@ -89,6 +90,7 @@ public final class MimeTypes {
   public static final String AUDIO_MPEG_L2 = BASE_TYPE_AUDIO + "/mpeg-L2";
   public static final String AUDIO_MPEGH_MHA1 = BASE_TYPE_AUDIO + "/mha1";
   public static final String AUDIO_MPEGH_MHM1 = BASE_TYPE_AUDIO + "/mhm1";
+  @UnstableApi public static final String AUDIO_MP4_ALS = BASE_TYPE_AUDIO + "/x-mp4-als";
   public static final String AUDIO_RAW = BASE_TYPE_AUDIO + "/raw";
   public static final String AUDIO_ALAW = BASE_TYPE_AUDIO + "/g711-alaw";
   public static final String AUDIO_MLAW = BASE_TYPE_AUDIO + "/g711-mlaw";
@@ -205,6 +207,10 @@ public final class MimeTypes {
   @UnstableApi public static final String APPLICATION_EXIF = BASE_TYPE_APPLICATION + "/x-exif";
   @UnstableApi public static final String APPLICATION_ICY = BASE_TYPE_APPLICATION + "/x-icy";
   public static final String APPLICATION_AIT = BASE_TYPE_APPLICATION + "/vnd.dvb.ait";
+
+  @UnstableApi
+  public static final String APPLICATION_MMT_DATA = BASE_TYPE_APPLICATION + "/x-mmt-data";
+
   public static final String APPLICATION_RTSP = BASE_TYPE_APPLICATION + "/x-rtsp";
 
   @UnstableApi
@@ -346,6 +352,7 @@ public final class MimeTypes {
       case AUDIO_MPEG:
       case AUDIO_MPEG_L1:
       case AUDIO_MPEG_L2:
+      case AUDIO_MP4_ALS:
       case AUDIO_RAW:
       case AUDIO_ALAW:
       case AUDIO_MLAW:
@@ -359,6 +366,7 @@ public final class MimeTypes {
       case APPLICATION_SCTE35:
       case APPLICATION_ICY:
       case APPLICATION_AIT:
+      case APPLICATION_MMT_DATA:
       case APPLICATION_META:
       case APPLICATION_ITUT_T35:
       case APPLICATION_CAMERA_MOTION:
@@ -720,6 +728,7 @@ public final class MimeTypes {
         || APPLICATION_SCTE35.equals(mimeType)
         || APPLICATION_ICY.equals(mimeType)
         || APPLICATION_AIT.equals(mimeType)
+        || APPLICATION_MMT_DATA.equals(mimeType)
         || APPLICATION_META.equals(mimeType)
         || APPLICATION_ITUT_T35.equals(mimeType)) {
       return C.TRACK_TYPE_METADATA;
