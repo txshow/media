@@ -32,15 +32,18 @@ import java.util.Map;
   private final Map<String, TtmlStyle> globalStyles;
   private final Map<String, TtmlRegion> regionMap;
   private final Map<String, String> imageMap;
+  private final float pixelSizeToEm;
 
   public TtmlSubtitle(
       TtmlNode root,
       Map<String, TtmlStyle> globalStyles,
       Map<String, TtmlRegion> regionMap,
-      Map<String, String> imageMap) {
+      Map<String, String> imageMap,
+      float pixelSizeToEm) {
     this.root = root;
     this.regionMap = regionMap;
     this.imageMap = imageMap;
+    this.pixelSizeToEm = pixelSizeToEm;
     this.globalStyles =
         globalStyles != null ? Collections.unmodifiableMap(globalStyles) : Collections.emptyMap();
     this.eventTimesUs = root.getEventTimesUs();
@@ -69,7 +72,7 @@ import java.util.Map;
 
   @Override
   public List<Cue> getCues(long timeUs) {
-    return root.getCues(timeUs, globalStyles, regionMap, imageMap);
+    return root.getCues(timeUs, globalStyles, regionMap, imageMap, pixelSizeToEm);
   }
 
   @VisibleForTesting

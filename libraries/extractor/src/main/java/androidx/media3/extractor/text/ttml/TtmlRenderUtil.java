@@ -32,6 +32,7 @@ import android.text.style.UnderlineSpan;
 import androidx.annotation.Nullable;
 import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.HorizontalTextInVerticalContextSpan;
+import androidx.media3.common.text.LetterSpacingSpan;
 import androidx.media3.common.text.RubySpan;
 import androidx.media3.common.text.SpanUtil;
 import androidx.media3.common.text.TextAnnotation;
@@ -89,7 +90,8 @@ import java.util.Map;
       TtmlStyle style,
       @Nullable TtmlNode parent,
       Map<String, TtmlStyle> globalStyles,
-      @Cue.VerticalType int verticalType) {
+      @Cue.VerticalType int verticalType,
+      float pixelSizeToEm) {
 
     if (style.getStyle() != TtmlStyle.UNSPECIFIED) {
       builder.setSpan(
@@ -225,12 +227,21 @@ import java.util.Map;
     }
     switch (style.getFontSizeUnit()) {
       case TtmlStyle.FONT_SIZE_UNIT_PIXEL:
-        SpanUtil.addOrReplaceSpan(
-            builder,
-            new AbsoluteSizeSpan((int) style.getFontSize(), true),
-            start,
-            end,
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        if (pixelSizeToEm == Cue.DIMEN_UNSET) {
+          SpanUtil.addOrReplaceSpan(
+              builder,
+              new AbsoluteSizeSpan((int) style.getFontSize(), true),
+              start,
+              end,
+              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        } else {
+          SpanUtil.addOrReplaceSpan(
+              builder,
+              new RelativeSizeSpan(style.getFontSize() * pixelSizeToEm),
+              start,
+              end,
+              Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
         break;
       case TtmlStyle.FONT_SIZE_UNIT_EM:
         SpanUtil.addOrReplaceSpan(
@@ -248,6 +259,34 @@ import java.util.Map;
         // Do nothing.
         break;
     }
+    if (!Float.isNaN(style.getLetterSpacing())) {
+      LetterSpacingSpan letterSpacingSpan =
+          pixelSizeToEm == Cue.DIMEN_UNSET
+              ? new LetterSpacingSpan(style.getLetterSpacing())
+              : LetterSpacingSpan.createFromEm(resolveLetterSpacingEm(style, pixelSizeToEm));
+      SpanUtil.addOrReplaceSpan(
+          builder, letterSpacingSpan, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+  }
+
+  private static float resolveLetterSpacingEm(TtmlStyle style, float pixelSizeToEm) {
+    float fontSizeScale;
+    switch (style.getFontSizeUnit()) {
+      case TtmlStyle.FONT_SIZE_UNIT_PIXEL:
+        fontSizeScale = style.getFontSize() * pixelSizeToEm;
+        break;
+      case TtmlStyle.FONT_SIZE_UNIT_EM:
+        fontSizeScale = style.getFontSize();
+        break;
+      case TtmlStyle.FONT_SIZE_UNIT_PERCENT:
+        fontSizeScale = style.getFontSize() / 100;
+        break;
+      case TtmlStyle.UNSPECIFIED:
+      default:
+        fontSizeScale = 1;
+        break;
+    }
+    return fontSizeScale == 0 ? 0 : style.getLetterSpacing() * pixelSizeToEm / fontSizeScale;
   }
 
   @Nullable

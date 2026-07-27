@@ -88,6 +88,7 @@ import java.lang.annotation.Target;
   private @OptionalBoolean int italic;
   private @FontSizeUnit int fontSizeUnit;
   private float fontSize;
+  private float letterSpacing;
   @Nullable private String id;
   private @RubyType int rubyType;
   private @TextAnnotation.Position int rubyPosition;
@@ -106,6 +107,7 @@ import java.lang.annotation.Target;
     bold = UNSPECIFIED;
     italic = UNSPECIFIED;
     fontSizeUnit = UNSPECIFIED;
+    letterSpacing = Float.NaN;
     rubyType = UNSPECIFIED;
     rubyPosition = TextAnnotation.POSITION_UNKNOWN;
     textCombine = UNSPECIFIED;
@@ -274,6 +276,9 @@ import java.lang.annotation.Target;
         fontSizeUnit = ancestor.fontSizeUnit;
         fontSize = ancestor.fontSize;
       }
+      if (Float.isNaN(letterSpacing)) {
+        letterSpacing = ancestor.letterSpacing;
+      }
       if (textEmphasis == null) {
         textEmphasis = ancestor.textEmphasis;
       }
@@ -393,6 +398,16 @@ import java.lang.annotation.Target;
 
   public float getFontSize() {
     return fontSize;
+  }
+
+  @CanIgnoreReturnValue
+  public TtmlStyle setLetterSpacing(float letterSpacing) {
+    this.letterSpacing = letterSpacing;
+    return this;
+  }
+
+  public float getLetterSpacing() {
+    return letterSpacing;
   }
 
   @CanIgnoreReturnValue

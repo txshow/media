@@ -468,6 +468,7 @@ public final class SubtitleView extends FrameLayout {
     for (int i = 0; i < cues.size(); i++) {
       Cue cue = cues.get(i);
       if (scaleCues) {
+        cue = SubtitleViewUtils.scaleRegionTextCue(cue, cues, textSizeScale);
         cue = SubtitleViewUtils.scaleBitmapCue(cue, textSizeScale);
       }
       strippedCues.add(applyEmbeddedStylingPreferences(cue));
