@@ -61,6 +61,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
   public static final String ATTR_TTS_BACKGROUND_COLOR = "backgroundColor";
   public static final String ATTR_TTS_FONT_STYLE = "fontStyle";
   public static final String ATTR_TTS_FONT_SIZE = "fontSize";
+  public static final String ATTR_TTS_LETTER_SPACING = "letterSpacing";
+  public static final String ATTR_ARIB_LETTER_SPACING = "letter-spacing";
   public static final String ATTR_TTS_FONT_FAMILY = "fontFamily";
   public static final String ATTR_TTS_FONT_WEIGHT = "fontWeight";
   public static final String ATTR_TTS_COLOR = "color";
@@ -250,14 +252,15 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       long timeUs,
       Map<String, TtmlStyle> globalStyles,
       Map<String, TtmlRegion> regionMap,
-      Map<String, String> imageMap) {
+      Map<String, String> imageMap,
+      float pixelSizeToEm) {
 
     List<Pair<String, String>> regionImageOutputs = new ArrayList<>();
     traverseForImage(timeUs, regionId, regionImageOutputs);
 
     TreeMap<String, Cue.Builder> regionTextOutputs = new TreeMap<>();
     traverseForText(timeUs, false, regionId, regionTextOutputs);
-    traverseForStyle(timeUs, globalStyles, regionMap, regionId, regionTextOutputs);
+    traverseForStyle(timeUs, globalStyles, regionMap, regionId, regionTextOutputs, pixelSizeToEm);
 
     List<Cue> cues = new ArrayList<>();
 
@@ -294,7 +297,11 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       regionOutput.setLine(region.line, region.lineType);
       regionOutput.setLineAnchor(region.lineAnchor);
       regionOutput.setPosition(region.position);
+      if (region.position != Cue.DIMEN_UNSET) {
+        regionOutput.setPositionAnchor(Cue.ANCHOR_TYPE_START);
+      }
       regionOutput.setSize(region.width);
+      regionOutput.setTextRegionHeight(region.height);
       regionOutput.setTextSize(region.textSize, region.textSizeType);
       regionOutput.setVerticalType(region.verticalType);
       cues.add(regionOutput.build());
@@ -369,7 +376,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       Map<String, TtmlStyle> globalStyles,
       Map<String, TtmlRegion> regionMaps,
       String inheritedRegion,
-      Map<String, Cue.Builder> regionOutputs) {
+      Map<String, Cue.Builder> regionOutputs,
+      float pixelSizeToEm) {
     if (!isActive(timeUs)) {
       return;
     }
@@ -382,12 +390,13 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
         Cue.Builder regionOutput = checkNotNull(regionOutputs.get(regionId));
         @Cue.VerticalType
         int verticalType = checkNotNull(regionMaps.get(resolvedRegionId)).verticalType;
-        applyStyleToOutput(globalStyles, regionOutput, start, end, verticalType);
+        applyStyleToOutput(globalStyles, regionOutput, start, end, verticalType, pixelSizeToEm);
       }
     }
     for (int i = 0; i < getChildCount(); ++i) {
       getChild(i)
-          .traverseForStyle(timeUs, globalStyles, regionMaps, resolvedRegionId, regionOutputs);
+          .traverseForStyle(
+              timeUs, globalStyles, regionMaps, resolvedRegionId, regionOutputs, pixelSizeToEm);
     }
   }
 
@@ -396,7 +405,8 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
       Cue.Builder regionOutput,
       int start,
       int end,
-      @Cue.VerticalType int verticalType) {
+      @Cue.VerticalType int verticalType,
+      float pixelSizeToEm) {
     @Nullable TtmlStyle resolvedStyle = TtmlRenderUtil.resolveStyle(style, styleIds, globalStyles);
     @Nullable SpannableStringBuilder text = (SpannableStringBuilder) regionOutput.getText();
     if (text == null) {
@@ -405,7 +415,7 @@ import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
     }
     if (resolvedStyle != null) {
       TtmlRenderUtil.applyStylesToSpan(
-          text, start, end, resolvedStyle, parent, globalStyles, verticalType);
+          text, start, end, resolvedStyle, parent, globalStyles, verticalType, pixelSizeToEm);
       if (TAG_P.equals(tag)) {
         if (resolvedStyle.getShearPercentage() != TtmlStyle.UNSPECIFIED_SHEAR) {
           // Shear style should only be applied to P nodes

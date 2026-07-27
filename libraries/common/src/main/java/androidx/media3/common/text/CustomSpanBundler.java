@@ -46,7 +46,14 @@ import java.util.ArrayList;
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target({TYPE_USE})
-  @IntDef({UNKNOWN, RUBY, TEXT_EMPHASIS, HORIZONTAL_TEXT_IN_VERTICAL_CONTEXT, VOICE})
+  @IntDef({
+    UNKNOWN,
+    RUBY,
+    TEXT_EMPHASIS,
+    HORIZONTAL_TEXT_IN_VERTICAL_CONTEXT,
+    VOICE,
+    LETTER_SPACING
+  })
   private @interface CustomSpanType {}
 
   private static final int UNKNOWN = -1;
@@ -58,6 +65,8 @@ import java.util.ArrayList;
   private static final int HORIZONTAL_TEXT_IN_VERTICAL_CONTEXT = 3;
 
   private static final int VOICE = 4;
+
+  private static final int LETTER_SPACING = 5;
 
   private static final String FIELD_START_INDEX = Util.intToStringMaxRadix(0);
   private static final String FIELD_END_INDEX = Util.intToStringMaxRadix(1);
@@ -89,6 +98,11 @@ import java.util.ArrayList;
           spanToBundle(text, span, /* spanType= */ VOICE, /* params= */ span.toBundle());
       bundledCustomSpans.add(bundle);
     }
+    for (LetterSpacingSpan span : text.getSpans(0, text.length(), LetterSpacingSpan.class)) {
+      Bundle bundle =
+          spanToBundle(text, span, /* spanType= */ LETTER_SPACING, /* params= */ span.toBundle());
+      bundledCustomSpans.add(bundle);
+    }
     return bundledCustomSpans;
   }
 
@@ -110,6 +124,9 @@ import java.util.ArrayList;
         break;
       case VOICE:
         text.setSpan(VoiceSpan.fromBundle(checkNotNull(span)), start, end, flags);
+        break;
+      case LETTER_SPACING:
+        text.setSpan(LetterSpacingSpan.fromBundle(checkNotNull(span)), start, end, flags);
         break;
       default:
         break;

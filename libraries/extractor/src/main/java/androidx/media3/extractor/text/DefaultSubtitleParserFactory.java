@@ -142,7 +142,7 @@ public final class DefaultSubtitleParserFactory implements SubtitleParser.Factor
         case MimeTypes.APPLICATION_DVBSUBS:
           return new DvbParser(format.initializationData);
         case MimeTypes.APPLICATION_TTML:
-          return new TtmlParser();
+          return new TtmlParser(format.width, format.height);
         default:
           break;
       }

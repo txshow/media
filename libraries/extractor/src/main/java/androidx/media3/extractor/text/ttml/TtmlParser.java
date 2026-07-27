@@ -102,6 +102,8 @@ public final class TtmlParser implements SubtitleParser {
   private static final Pattern OFFSET_TIME =
       Pattern.compile("^([0-9]+(?:\\.[0-9]+)?)(h|m|s|ms|f|t)$");
   private static final Pattern FONT_SIZE = Pattern.compile("^(([0-9]*.)?[0-9]+)(px|em|%)$");
+  private static final Pattern PIXEL_LENGTH =
+      Pattern.compile("^([-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))px$");
   static final Pattern SIGNED_PERCENTAGE = Pattern.compile("^([-+]?\\d+\\.?\\d*?)%$");
   static final Pattern PERCENTAGE_COORDINATES =
       Pattern.compile("^([-+]?\\d+\\.?\\d*?)% ([-+]?\\d+\\.?\\d*?)%$");
@@ -116,8 +118,23 @@ public final class TtmlParser implements SubtitleParser {
   private static final int DEFAULT_CELL_ROWS = 15;
 
   private final XmlPullParserFactory xmlParserFactory;
+  @Nullable private final TtsExtent defaultTtsExtent;
 
   public TtmlParser() {
+    this(Format.NO_VALUE, Format.NO_VALUE);
+  }
+
+  /**
+   * Creates a parser with dimensions to use when a TTML document omits its root {@code tts:extent}.
+   *
+   * @param viewportWidth The viewport width in pixels, or {@link Format#NO_VALUE} if unknown.
+   * @param viewportHeight The viewport height in pixels, or {@link Format#NO_VALUE} if unknown.
+   */
+  public TtmlParser(int viewportWidth, int viewportHeight) {
+    defaultTtsExtent =
+        viewportWidth > 0 && viewportHeight > 0
+            ? new TtsExtent(viewportWidth, viewportHeight)
+            : null;
     try {
       xmlParserFactory = XmlPullParserFactory.newInstance();
       xmlParserFactory.setNamespaceAware(true);
@@ -168,6 +185,9 @@ public final class TtmlParser implements SubtitleParser {
               frameAndTickRate = parseFrameAndTickRates(xmlParser);
               cellRows = parseCellRows(xmlParser, DEFAULT_CELL_ROWS);
               ttsExtent = parseTtsExtent(xmlParser);
+              if (ttsExtent == null) {
+                ttsExtent = defaultTtsExtent;
+              }
             }
             if (!isSupportedTag(name)) {
               Log.i(TAG, "Ignoring unsupported tag: " + xmlParser.getName());
@@ -191,9 +211,16 @@ public final class TtmlParser implements SubtitleParser {
             checkNotNull(parent).addChild(TtmlNode.buildTextNode(xmlParser.getText()));
           } else if (eventType == XmlPullParser.END_TAG) {
             if (xmlParser.getName().equals(TtmlNode.TAG_TT)) {
+              // Convert TTML pixels to a multiple of the default cell-height font size.
+              float pixelSizeToEm =
+                  ttsExtent == null ? Cue.DIMEN_UNSET : cellRows / (float) ttsExtent.height;
               ttmlSubtitle =
                   new TtmlSubtitle(
-                      checkNotNull(nodeStack.peek()), globalStyles, regionMap, imageMap);
+                      checkNotNull(nodeStack.peek()),
+                      globalStyles,
+                      regionMap,
+                      imageMap,
+                      pixelSizeToEm);
             }
             nodeStack.pop();
           }
@@ -564,6 +591,15 @@ public final class TtmlParser implements SubtitleParser {
             Log.w(TAG, "Failed parsing fontSize value: " + attributeValue);
           }
           break;
+        case TtmlNode.ATTR_TTS_LETTER_SPACING:
+        case TtmlNode.ATTR_ARIB_LETTER_SPACING:
+          try {
+            style = createIfNull(style);
+            parseLetterSpacing(attributeValue, style);
+          } catch (SubtitleDecoderException e) {
+            Log.w(TAG, "Failed parsing letterSpacing value: " + attributeValue);
+          }
+          break;
         case TtmlNode.ATTR_TTS_FONT_WEIGHT:
           style = createIfNull(style).setBold(TtmlNode.BOLD.equalsIgnoreCase(attributeValue));
           break;
@@ -818,6 +854,20 @@ public final class TtmlParser implements SubtitleParser {
     } else {
       throw new SubtitleDecoderException("Invalid expression for fontSize: '" + expression + "'.");
     }
+  }
+
+  private static void parseLetterSpacing(String expression, TtmlStyle out)
+      throws SubtitleDecoderException {
+    if (Ascii.equalsIgnoreCase(expression, "normal")) {
+      out.setLetterSpacing(0);
+      return;
+    }
+    Matcher matcher = PIXEL_LENGTH.matcher(expression);
+    if (!matcher.matches()) {
+      throw new SubtitleDecoderException(
+          "Invalid expression for letterSpacing: '" + expression + "'.");
+    }
+    out.setLetterSpacing(Float.parseFloat(checkNotNull(matcher.group(1))));
   }
 
   /**
