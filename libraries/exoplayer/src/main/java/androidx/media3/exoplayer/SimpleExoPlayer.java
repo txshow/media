@@ -30,6 +30,8 @@ import androidx.media3.common.AuxEffectInfo;
 import androidx.media3.common.BasePlayer;
 import androidx.media3.common.C;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.DiscMenuController;
+import androidx.media3.common.DiscMenuState;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaChapter;
@@ -44,6 +46,8 @@ import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
 import androidx.media3.common.text.CueGroup;
+import androidx.media3.common.text.SubtitleOffsets;
+import androidx.media3.common.text.SubtitleSelectionState;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.common.util.Size;
@@ -754,6 +758,37 @@ public class SimpleExoPlayer extends BasePlayer implements ExoPlayer, ExoPlayerD
   public Format getAudioFormat() {
     blockUntilConstructorFinished();
     return player.getAudioFormat();
+  }
+
+  @Override
+  public SubtitleOffsets getSubtitleOffsets() {
+    blockUntilConstructorFinished();
+    return player.getSubtitleOffsets();
+  }
+
+  @Override
+  public void setSubtitleOffsets(SubtitleOffsets offsets) {
+    blockUntilConstructorFinished();
+    player.setSubtitleOffsets(offsets);
+  }
+
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    blockUntilConstructorFinished();
+    return player.getDiscMenuState();
+  }
+
+  @Override
+  @Nullable
+  public DiscMenuController getDiscMenuController() {
+    blockUntilConstructorFinished();
+    return player.getDiscMenuController();
+  }
+
+  @Override
+  public SubtitleSelectionState getSubtitleSelectionState() {
+    blockUntilConstructorFinished();
+    return player.getSubtitleSelectionState();
   }
 
   @Override

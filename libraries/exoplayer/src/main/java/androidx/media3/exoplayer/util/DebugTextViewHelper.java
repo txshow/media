@@ -417,10 +417,15 @@ public class DebugTextViewHelper {
     }
     String trimmedDecoderName = decoderName.trim();
     @Nullable MediaCodecInfo decoderInfo = getDecoderInfo(format, trimmedDecoderName);
-    if (decoderInfo != null && decoderInfo.hardwareAccelerated) {
-      return appendInlineField(trimmedDecoderName, "HW:", getLowerCaseSimpleName(MediaCodec.class));
+    if (decoderInfo != null) {
+      if (decoderInfo.hardwareAccelerated) {
+        return trimmedDecoderName + " (Hardware)";
+      } else if (decoderInfo.softwareOnly) {
+        return trimmedDecoderName + " (System software)";
+      }
     }
-    return trimmedDecoderName;
+    // Non-MediaCodec decoder (e.g. FFmpeg software decoder)
+    return trimmedDecoderName + " (FFmpeg software)";
   }
 
   private static @Nullable String getBufferCountersString(@Nullable DecoderCounters counters) {

@@ -131,6 +131,8 @@ public class DefaultRenderersFactory implements RenderersFactory {
   private boolean enableMediaCodecBufferDecodeOnlyFlag;
   private boolean enableMediaCodecVideoRendererDurationToProgressUs;
   private @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy;
+  private boolean enableSurfaceControlFrameRetention;
+  @Nullable private DecoderManager decoderManager;
 
   /**
    * @param context A {@link Context}.
@@ -235,6 +237,39 @@ public class DefaultRenderersFactory implements RenderersFactory {
   public final DefaultRenderersFactory setDolbyVisionOutputPolicy(
       @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy) {
     this.dolbyVisionOutputPolicy = dolbyVisionOutputPolicy;
+    return this;
+  }
+
+  /**
+   * Sets the {@link DecoderManager} used to influence which (platform vs. extension) decoders the
+   * built renderers prefer.
+   *
+   * <p>The decoder preferences are applied through the track selector rather than directly by this
+   * factory; this method stores the manager so it can be wired up when renderers are built.
+   *
+   * @param decoderManager The {@link DecoderManager}.
+   * @return This factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public DefaultRenderersFactory setDecoderManager(DecoderManager decoderManager) {
+    this.decoderManager = decoderManager;
+    return this;
+  }
+
+  /**
+   * Sets whether the video renderer should retain frames in a {@link android.view.SurfaceControl}
+   * compatible way across surface replacements.
+   *
+   * <p>This is a no-op hook that stores the requested value; the default renderers build does not
+   * need further plumbing.
+   *
+   * @param enableSurfaceControlFrameRetention Whether to enable surface control frame retention.
+   * @return This factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public DefaultRenderersFactory setEnableSurfaceControlFrameRetention(
+      boolean enableSurfaceControlFrameRetention) {
+    this.enableSurfaceControlFrameRetention = enableSurfaceControlFrameRetention;
     return this;
   }
 
@@ -574,6 +609,48 @@ public class DefaultRenderersFactory implements RenderersFactory {
     if (extensionRendererMode == EXTENSION_RENDERER_MODE_OFF) {
       return;
     }
+
+    // Official buildVideoRenderers (obfuscated hg0.e/hg0.d): the Dolby Vision profile 5 renderer is
+    // reflected and placed ahead of the core MediaCodec video renderer, followed by the base video
+    // renderer (with the profile-7 converter) and the remaining extension renderers.
+    try {
+      // LINT.IfChange
+      Class<?> clazz = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegDolbyVisionP5Renderer");
+      // Full class names used for media3 constructor args so the LINT rule triggers if any of them
+      // move.
+      @SuppressWarnings("UnnecessarilyFullyQualified")
+      Constructor<?> constructor =
+          clazz.getConstructor(
+              Context.class,
+              androidx.media3.exoplayer.mediacodec.MediaCodecAdapter.Factory.class,
+              androidx.media3.exoplayer.mediacodec.MediaCodecSelector.class,
+              long.class,
+              boolean.class,
+              Handler.class,
+              androidx.media3.exoplayer.video.VideoRendererEventListener.class,
+              int.class);
+      // LINT.ThenChange(../../../../../../proguard-rules.txt)
+      Renderer renderer =
+          (Renderer)
+              constructor.newInstance(
+                  context,
+                  getCodecAdapterFactory(),
+                  mediaCodecSelector,
+                  allowedVideoJoiningTimeMs,
+                  enableDecoderFallback,
+                  eventHandler,
+                  eventListener,
+                  MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY);
+      out.add(0, renderer);
+      Log.i(TAG, "Loaded FfmpegDolbyVisionP5Renderer.");
+    } catch (ClassNotFoundException e) {
+      // Expected if the app was built without the extension.
+    } catch (Exception e) {
+      // Instantiation failed (e.g. R8 stripped the constructor, or the native pipeline is
+      // unavailable). Log and continue without the P5 renderer rather than crashing playback.
+      Log.w(TAG, "Failed to instantiate FfmpegDolbyVisionP5Renderer", e);
+    }
+
     int extensionRendererIndex = out.size();
     if (extensionRendererMode == EXTENSION_RENDERER_MODE_PREFER) {
       extensionRendererIndex--;

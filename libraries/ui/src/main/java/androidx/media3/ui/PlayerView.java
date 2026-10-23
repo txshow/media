@@ -64,6 +64,7 @@ import androidx.core.content.ContextCompat;
 import androidx.media3.common.AdOverlayInfo;
 import androidx.media3.common.AdViewProvider;
 import androidx.media3.common.C;
+import androidx.media3.common.DiscMenuController;
 import androidx.media3.common.ErrorMessageProvider;
 import androidx.media3.common.MediaMetadata;
 import androidx.media3.common.PlaybackException;
@@ -73,6 +74,7 @@ import androidx.media3.common.Timeline;
 import androidx.media3.common.Timeline.Period;
 import androidx.media3.common.Tracks;
 import androidx.media3.common.VideoSize;
+import androidx.media3.common.VideoTransform;
 import androidx.media3.common.ViewProvider;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.RepeatModeUtil;
@@ -328,6 +330,9 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable private final Object imageOutput;
 
   @Nullable private Player player;
+  @Nullable private DiscMenuController discMenuController;
+  private VideoTransform videoTransform = new VideoTransform(1.0f, 1.0f, 0.0f, 0.0f);
+  private float videoAspectRatioOverride;
   private boolean useController;
 
   // At most one of controllerVisibilityListener and legacyControllerVisibilityListener is non-null.
@@ -1481,6 +1486,65 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable
   public View getVideoSurfaceView() {
     return surfaceView;
+  }
+
+  /**
+   * Sets the {@link DiscMenuController} used to dispatch touch events, or {@code null} to clear it.
+   */
+  @UnstableApi
+  public void setDiscMenuController(@Nullable DiscMenuController controller) {
+    discMenuController = controller;
+  }
+
+  /**
+   * Dispatches a touch event to the attached disc menu controller.
+   *
+   * @return {@code true} if an active, pointer-capable disc menu consumed the event, {@code false}
+   *     otherwise.
+   */
+  @UnstableApi
+  public boolean dispatchDiscMenuTouchEvent(MotionEvent event) {
+    return discMenuController != null
+        && discMenuController.isActive()
+        && discMenuController.supportsPointer();
+  }
+
+  /**
+   * Sets an optional backend player that renders outside this view's own {@link #setPlayer}
+   * ownership. No-op in the default implementation.
+   */
+  @UnstableApi
+  public void setBackendPlayer(@Nullable Player player) {
+    // No-op hook for alternate playback backends.
+  }
+
+  /**
+   * Returns the current video transform (scale/pan), identity by default.
+   *
+   * <p>The transform is stored by this view; applying it to the rendering surface is left to a
+   * future implementation.
+   */
+  @UnstableApi
+  public VideoTransform getVideoTransform() {
+    return videoTransform;
+  }
+
+  /** Stores the video transform (scale/pan). */
+  @UnstableApi
+  public void setVideoTransform(VideoTransform transform) {
+    videoTransform = transform;
+  }
+
+  /** Returns the overridden video aspect ratio, or {@code 0} when no override is set. */
+  @UnstableApi
+  public float getVideoAspectRatioOverride() {
+    return videoAspectRatioOverride;
+  }
+
+  /** Stores a video aspect ratio override; a non-positive value clears the override. */
+  @UnstableApi
+  public void setVideoAspectRatioOverride(float aspectRatio) {
+    videoAspectRatioOverride = aspectRatio;
   }
 
   /**

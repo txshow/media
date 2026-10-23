@@ -21,6 +21,8 @@ import android.content.Context;
 import android.view.Surface;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
+import java.nio.ByteBuffer;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @RestrictTo(LIBRARY_GROUP)
@@ -29,6 +31,9 @@ public final class MPVLib {
   private static final CopyOnWriteArrayList<EventObserver> OBSERVERS = new CopyOnWriteArrayList<>();
   private static final CopyOnWriteArrayList<LogObserver> LOG_OBSERVERS =
       new CopyOnWriteArrayList<>();
+  /** Registered custom-protocol byte streams, keyed by their URL. Java-side registry (official). */
+  private static final ConcurrentHashMap<String, StreamCallback> STREAMS =
+      new ConcurrentHashMap<>();
 
   public static native void create(Context appctx);
 
@@ -50,6 +55,13 @@ public final class MPVLib {
 
   /** Queues a command whose completion is delivered to {@link EventObserver#eventCommandReply}. */
   public static native int enqueueCommand(long requestId, String[] cmd);
+
+  /**
+   * Queues a command whose completion carries a long string result, delivered to {@link
+   * EventObserver#eventCommandReply}. Declared in the official Java bridge; implemented by the
+   * native libplayer.
+   */
+  public static native int enqueueCommandLongResult(long requestId, String arg, String[] cmd);
 
   public static native int setOptionString(String name, String value);
 
@@ -109,9 +121,9 @@ public final class MPVLib {
     }
   }
 
-  public static void eventCommandReply(long requestId, int error) {
+  public static void eventCommandReply(long requestId, int error, long result) {
     for (EventObserver observer : OBSERVERS) {
-      observer.eventCommandReply(requestId, error);
+      observer.eventCommandReply(requestId, error, result);
     }
   }
 
@@ -135,6 +147,57 @@ public final class MPVLib {
     }
   }
 
+  /**
+   * Registers a custom-protocol byte stream provider under {@code url}. Called by the application
+   * before opening the stream in mpv. Java-side registry (official: {@code registerStream}).
+   */
+  public static void registerStream(String url, StreamCallback callback) {
+    STREAMS.put(url, callback);
+  }
+
+  /**
+   * Opens a previously registered custom-protocol byte stream. Returns {@code null} if no provider
+   * is registered for {@code url}, otherwise wraps the provider as a {@link Stream}. Java-side
+   * implementation mirroring the official {@code openStream} (registry lookup + wrapper).
+   */
+  public static Stream openStream(String url) {
+    StreamCallback callback = STREAMS.get(url);
+    if (callback == null) {
+      return null;
+    }
+    return new Stream() {
+      @Override
+      public int read(ByteBuffer buffer) {
+        return callback.read(buffer);
+      }
+
+      @Override
+      public long seek(long offset) {
+        return callback.seek(offset);
+      }
+
+      @Override
+      public long size() {
+        return callback.size();
+      }
+
+      @Override
+      public void cancel() {
+        callback.cancel();
+      }
+
+      @Override
+      public void close() {
+        callback.close();
+      }
+    };
+  }
+
+  /** Unregisters a previously registered byte stream. Java-side registry removal (official). */
+  public static void unregisterStream(String url) {
+    STREAMS.remove(url);
+  }
+
   public interface EventObserver {
 
     void eventProperty(String property);
@@ -149,7 +212,7 @@ public final class MPVLib {
 
     void event(int eventId);
 
-    default void eventCommandReply(long requestId, int error) {}
+    default void eventCommandReply(long requestId, int error, long result) {}
 
     void eventEndFile(int reason, int error, @Nullable String errorString);
   }
@@ -157,6 +220,48 @@ public final class MPVLib {
   public interface LogObserver {
 
     void logMessage(String prefix, int level, String text);
+  }
+
+  /**
+   * Byte-stream provider registered by the application for custom-protocol URLs (official marker
+   * interface {@code is.xyz.mpv.a}). {@link #openStream(String)} wraps a registered provider into
+   * a {@link Stream} that forwards every call to this interface.
+   */
+  public interface StreamCallback {
+
+    /** Reads up to {@code buffer.remaining()} bytes into {@code buffer}; returns bytes read or -1 at EOF. */
+    int read(ByteBuffer buffer);
+
+    /** Seeks to an absolute byte {@code offset}; returns the resulting offset or -1 on failure. */
+    long seek(long offset);
+
+    /** Returns the total size in bytes of the stream. */
+    long size();
+
+    /** Cancels a pending read, unblocking it. */
+    void cancel();
+
+    /** Closes the stream. */
+    void close();
+  }
+
+  /** Byte-stream provider used by the native bridge for custom protocol reads. */
+  public interface Stream {
+
+    /** Reads up to {@code buffer.remaining()} bytes into {@code buffer}; returns bytes read or -1 at EOF. */
+    int read(ByteBuffer buffer);
+
+    /** Seeks to an absolute byte {@code offset}; returns the resulting offset or -1 on failure. */
+    long seek(long offset);
+
+    /** Returns the total size in bytes of the stream. */
+    long size();
+
+    /** Cancels a pending read, unblocking it. */
+    void cancel();
+
+    /** Closes the stream. */
+    void close();
   }
 
   public static final class MpvFormat {

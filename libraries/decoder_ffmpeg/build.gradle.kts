@@ -33,15 +33,12 @@ android {
   sourceSets { getByName("androidTest").assets.directories.add("../test_data/src/test/assets") }
 }
 
-// Configure the native build only if ffmpeg is present to avoid gradle sync
-// failures if ffmpeg hasn't been built according to the README instructions.
-if (project.file("src/main/ffmpeg/include/libavcodec/avcodec.h").exists()) {
-  android.externalNativeBuild.cmake.path = file("src/main/jni/CMakeLists.txt")
-  // LINT.IfChange
-  // Should match cmake_minimum_required.
-  android.externalNativeBuild.cmake.version = "3.21.0+"
-  // LINT.ThenChange(src/main/jni/CMakeLists.txt)
-}
+// Native libraries are shipped as prebuilt unified objects under src/main/jniLibs:
+//   libffmpeg.so, libffmpegJNI.so, libffmpegDoviJNI.so
+// (built from FongMi/FFmpeg release-9.0-fongmi + FongMi/mpv-android fongmi).
+// The legacy CMakeLists.txt expected the old split libav*.so + libplacebo renderer-sdk,
+// which no longer match the "mpv-jni-ffmpeg-shared-v1" unified layout required by the app,
+// so externalNativeBuild is intentionally disabled; AGP packages jniLibs directly.
 
 dependencies {
   api(project(":lib-decoder"))

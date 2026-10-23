@@ -68,6 +68,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -165,6 +166,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   private @AmrExtractor.Flags int amrFlags;
   private @FlacExtractor.Flags int flacFlags;
   private @MatroskaExtractor.Flags int matroskaFlags;
+  private @MatroskaExtractor.Flags int matroskaFlagsForHttpSources;
   private @Mp4Extractor.Flags int mp4Flags;
   private @FragmentedMp4Extractor.Flags int fragmentedMp4Flags;
   private @Mp3Extractor.Flags int mp3Flags;
@@ -179,6 +181,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   private @JpegExtractor.Flags int jpegFlags;
   private @HeifExtractor.Flags int heifFlags;
   private boolean parseHagcMetadata;
+  private List<UUID> mp4ClearKeys = List.of();
 
   public DefaultExtractorsFactory() {
     tsMode = TsExtractor.MODE_SINGLE_PMT;
@@ -306,6 +309,26 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   }
 
   /**
+   * Sets flags for {@link MatroskaExtractor} instances created by the factory when the source is
+   * served over HTTP(S).
+   *
+   * <p>The flags are combined with the flags set via {@link #setMatroskaExtractorFlags(int)} and
+   * applied to all {@link MatroskaExtractor} instances created by the factory. This is a relaxed
+   * implementation of the upstream behavior: it does not restrict the flags to HTTP sources only,
+   * since the factory does not track the source URI at extraction time.
+   *
+   * @see MatroskaExtractor#MatroskaExtractor(SubtitleParser.Factory, int)
+   * @param flags The flags to use for HTTP sources.
+   * @return The factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public synchronized DefaultExtractorsFactory setMatroskaExtractorFlagsForHttpSources(
+      @MatroskaExtractor.Flags int flags) {
+    this.matroskaFlagsForHttpSources = flags;
+    return this;
+  }
+
+  /**
    * Sets flags for {@link Mp4Extractor} instances created by the factory.
    *
    * @see Mp4Extractor#Mp4Extractor(SubtitleParser.Factory, int)
@@ -315,6 +338,19 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
   @CanIgnoreReturnValue
   public synchronized DefaultExtractorsFactory setMp4ExtractorFlags(@Mp4Extractor.Flags int flags) {
     this.mp4Flags = flags;
+    return this;
+  }
+
+  /**
+   * Sets the clear key UUIDs that can be used to decrypt MP4 content protected with ISO Clear Key
+   * encryption. The keys are provided to {@link Mp4Extractor} instances created by the factory.
+   *
+   * @param clearKeys The clear key UUIDs to use.
+   * @return The factory, for convenience.
+   */
+  @CanIgnoreReturnValue
+  public synchronized DefaultExtractorsFactory setMp4ClearKeys(List<UUID> clearKeys) {
+    this.mp4ClearKeys = clearKeys == null ? List.of() : clearKeys;
     return this;
   }
 
@@ -552,6 +588,7 @@ public final class DefaultExtractorsFactory implements ExtractorsFactory {
             new MatroskaExtractor(
                 subtitleParserFactory,
                 matroskaFlags
+                    | matroskaFlagsForHttpSources
                     | (textTrackTranscodingEnabled
                         ? 0
                         : MatroskaExtractor.FLAG_EMIT_RAW_SUBTITLE_DATA)

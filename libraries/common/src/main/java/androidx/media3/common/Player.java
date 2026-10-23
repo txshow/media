@@ -32,6 +32,7 @@ import android.view.TextureView;
 import androidx.annotation.FloatRange;
 import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.text.Cue;
@@ -948,6 +949,17 @@ public interface Player {
     default void onMediaEditionsChanged(List<MediaEdition> editions) {}
 
     /**
+     * Called when the value of {@link Player#getDiscMenuState()} changes.
+     *
+     * <p>{@link #onEvents(Player, Events)} will also be called to report this event along with
+     * other events that happen in the same {@link Looper} message queue iteration.
+     *
+     * @param state The latest {@link DiscMenuState}. Never null.
+     */
+    @UnstableApi
+    default void onDiscMenuStateChanged(@NonNull DiscMenuState state) {}
+
+    /**
      * Called when the value of {@link Player#getMediaMetadata()} changes.
      *
      * <p>This method may be called multiple times in quick succession.
@@ -1622,6 +1634,7 @@ public interface Player {
    *   <li>{@link #EVENT_METADATA}
    *   <li>{@link #EVENT_DEVICE_INFO_CHANGED}
    *   <li>{@link #EVENT_DEVICE_VOLUME_CHANGED}
+   *   <li>{@link #EVENT_DISC_MENU_STATE_CHANGED}
    * </ul>
    */
   // @Target list includes both 'default' targets and TYPE_USE, to ensure backwards compatibility
@@ -1662,7 +1675,8 @@ public interface Player {
     EVENT_DEVICE_INFO_CHANGED,
     EVENT_DEVICE_VOLUME_CHANGED,
     EVENT_MEDIA_CHAPTERS_CHANGED,
-    EVENT_MEDIA_EDITIONS_CHANGED
+    EVENT_MEDIA_EDITIONS_CHANGED,
+    EVENT_DISC_MENU_STATE_CHANGED
   })
   @interface Event {}
 
@@ -1770,6 +1784,9 @@ public interface Player {
 
   /** {@link #getCurrentMediaEditions()} changed. */
   @UnstableApi int EVENT_MEDIA_EDITIONS_CHANGED = 32;
+
+  /** {@link #getDiscMenuState()} changed. */
+  @UnstableApi int EVENT_DISC_MENU_STATE_CHANGED = 33;
 
   /**
    * Commands that indicate which method calls are currently permitted on a particular {@code
@@ -3053,6 +3070,29 @@ public interface Player {
   @UnstableApi
   default boolean selectEdition(MediaEdition edition) {
     return false;
+  }
+
+  /**
+   * Returns the current disc menu state.
+   *
+   * <p>Players that do not support disc menus return {@link DiscMenuState#EMPTY}.
+   *
+   * @see Listener#onDiscMenuStateChanged(DiscMenuState)
+   */
+  @UnstableApi
+  @NonNull
+  default DiscMenuState getDiscMenuState() {
+    return DiscMenuState.EMPTY;
+  }
+
+  /**
+   * Returns the {@link DiscMenuController} driving the disc menu, or {@code null} if the current
+   * player does not support disc menus.
+   */
+  @UnstableApi
+  @Nullable
+  default DiscMenuController getDiscMenuController() {
+    return null;
   }
 
   /**

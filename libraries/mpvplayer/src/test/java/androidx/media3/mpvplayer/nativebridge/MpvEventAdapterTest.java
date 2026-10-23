@@ -178,7 +178,7 @@ public final class MpvEventAdapterTest {
             () -> {},
             new MpvLoadGeneration());
 
-    adapter.eventCommandReply(7, -12);
+    adapter.eventCommandReply(7, -12, 0);
 
     verify(listener, never()).onReply(7, -12);
     assertThat(posted.get()).isNotNull();

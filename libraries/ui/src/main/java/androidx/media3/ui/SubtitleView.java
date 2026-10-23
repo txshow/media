@@ -133,6 +133,7 @@ public final class SubtitleView extends FrameLayout {
   private float textSizeScale;
   private float bottomPaddingFraction;
   private float bottomPosition;
+  private float bitmapSubtitleBrightness = 1.0f;
   private final Rect videoViewport;
   private boolean applyEmbeddedStyles;
   private boolean applyEmbeddedFontSizes;
@@ -400,6 +401,15 @@ public final class SubtitleView extends FrameLayout {
   public void setBottomPosition(float bottomPosition) {
     this.bottomPosition = bottomPosition;
     updateOutput();
+  }
+
+  /**
+   * Sets the brightness applied to bitmap (image-based) subtitles.
+   *
+   * <p>Degraded implementation: the value is stored but not yet applied to the rendered output.
+   */
+  public void setBitmapSubtitleBrightness(float brightness) {
+    this.bitmapSubtitleBrightness = brightness;
   }
 
   /* package */ void setVideoViewport(int left, int top, int right, int bottom) {

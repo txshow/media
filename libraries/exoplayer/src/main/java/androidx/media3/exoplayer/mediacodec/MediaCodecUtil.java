@@ -36,6 +36,7 @@ import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.C;
 import androidx.media3.common.util.CodecSpecificDataUtil;
 import androidx.media3.common.util.CodecSpecificDataUtil.MediaCodecProfileAndLevel;
 import androidx.media3.common.util.Log;
@@ -76,6 +77,19 @@ public final class MediaCodecUtil {
 
   @GuardedBy("MediaCodecUtil.class")
   private static final HashMap<CodecKey, List<MediaCodecInfo>> decoderInfosCache = new HashMap<>();
+
+  /**
+   * Current decoder mode. Used to sort codec lists: hardware mode prioritizes hardware decoders,
+   * software codec mode prioritizes software-only decoders. FFmpeg mode doesn't use MediaCodec.
+   */
+  @GuardedBy("MediaCodecUtil.class")
+  private static int decodeMode = C.DECODE_HARDWARE;
+
+  /**
+   * Flag indicating that the decode mode has changed and MediaCodec renderers should re-initialize
+   * their codec with the new ordering.
+   */
+  private static volatile boolean decodeModeChanged = false;
 
   // Lazily initialized.
   private static int maxH264DecodableFrameSize = -1;
@@ -128,6 +142,36 @@ public final class MediaCodecUtil {
   @VisibleForTesting
   public static synchronized void clearDecoderInfoCache() {
     decoderInfosCache.clear();
+  }
+
+  /**
+   * Sets the current decoder mode, which affects codec ordering in {@link #getDecoderInfos}.
+   *
+   * <p>Hardware mode prioritizes hardware-accelerated decoders. Software codec mode prioritizes
+   * software-only decoders. The codec cache is cleared so the new ordering takes effect immediately.
+   *
+   * @param decodeMode The {@link C.DecodeMode}.
+   */
+  public static synchronized void setDecodeMode(@C.DecodeMode int decodeMode) {
+    if (MediaCodecUtil.decodeMode != decodeMode) {
+      MediaCodecUtil.decodeMode = decodeMode;
+      decoderInfosCache.clear();
+      decodeModeChanged = true;
+    }
+  }
+
+  /**
+   * Returns whether the decode mode has changed since the last call. Clears the flag.
+   *
+   * <p>MediaCodec renderers should call this on each iteration of the rendering loop. If it returns
+   * true, they should release and re-initialize their codec to pick up the new ordering.
+   */
+  public static boolean consumeDecodeModeChanged() {
+    if (decodeModeChanged) {
+      decodeModeChanged = false;
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -201,9 +245,30 @@ public final class MediaCodecUtil {
       }
     }
     applyWorkarounds(mimeType, decoderInfos);
+    sortByDecodeMode(decoderInfos);
     ImmutableList<MediaCodecInfo> immutableDecoderInfos = ImmutableList.copyOf(decoderInfos);
     decoderInfosCache.put(key, immutableDecoderInfos);
     return immutableDecoderInfos;
+  }
+
+  /**
+   * Sorts decoder list based on current decode mode: hardware mode puts hardware-accelerated
+   * decoders first, software codec mode puts software-only decoders first.
+   */
+  @GuardedBy("MediaCodecUtil.class")
+  private static void sortByDecodeMode(ArrayList<MediaCodecInfo> decoderInfos) {
+    if (decodeMode == C.DECODE_SOFTWARE_CODEC) {
+      // Software codec mode: prioritize software-only decoders
+      sortByScore(
+          decoderInfos,
+          decoderInfo -> decoderInfo.softwareOnly ? 2 : (decoderInfo.hardwareAccelerated ? 0 : 1));
+    } else if (decodeMode == C.DECODE_HARDWARE) {
+      // Hardware mode: prioritize hardware-accelerated decoders
+      sortByScore(
+          decoderInfos,
+          decoderInfo -> decoderInfo.hardwareAccelerated && !decoderInfo.softwareOnly ? 2 : (decoderInfo.softwareOnly ? 0 : 1));
+    }
+    // DECODE_SOFTWARE (FFmpeg): MediaCodec not used, no reordering needed
   }
 
   /**

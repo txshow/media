@@ -81,6 +81,7 @@ public class PlayerSeekView extends FrameLayout
   private final int chapterBubbleMaxWidth;
 
   @Nullable private Player player;
+  @Nullable private java.util.function.Supplier<Long> durationSupplier;
   @Nullable private TextView chapterBubbleView;
   @Nullable private ViewGroup chapterBubbleRoot;
   @Nullable private String chapterBubbleText;
@@ -171,6 +172,16 @@ public class PlayerSeekView extends FrameLayout
       addPlayerListener();
       updateTimeline();
     }
+  }
+
+  /**
+   * Sets a supplier used to obtain the active playback duration in milliseconds.
+   *
+   * <p>Degraded implementation: the supplier is stored; hooking it into the time bar layout is
+   * left to a future implementation.
+   */
+  public void setDurationSupplier(java.util.function.Supplier<Long> durationSupplier) {
+    this.durationSupplier = durationSupplier;
   }
 
   /** Returns the bound {@link TimeBar}. */

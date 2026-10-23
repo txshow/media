@@ -41,6 +41,8 @@ import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.AuxEffectInfo;
 import androidx.media3.common.C;
+import androidx.media3.common.DiscMenuController;
+import androidx.media3.common.DiscMenuState;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
@@ -49,6 +51,8 @@ import androidx.media3.common.PriorityTaskManager;
 import androidx.media3.common.Timeline;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.text.SubtitleOffsets;
+import androidx.media3.common.text.SubtitleSelectionState;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ExperimentalApi;
 import androidx.media3.common.util.StuckPlayerException;
@@ -2068,6 +2072,31 @@ public interface ExoPlayer extends Player {
   @UnstableApi
   @Nullable
   Format getAudioFormat();
+
+  /** Returns the current primary and secondary subtitle offsets, in milliseconds. */
+  @UnstableApi
+  SubtitleOffsets getSubtitleOffsets();
+
+  /**
+   * Sets the primary and secondary subtitle offsets, in milliseconds.
+   *
+   * @param offsets The new {@link SubtitleOffsets}.
+   */
+  @UnstableApi
+  void setSubtitleOffsets(SubtitleOffsets offsets);
+
+  /** Returns the current {@link DiscMenuState}. */
+  @UnstableApi
+  DiscMenuState getDiscMenuState();
+
+  /** Returns the {@link DiscMenuController} controlling disc navigation, or null if none. */
+  @UnstableApi
+  @Nullable
+  DiscMenuController getDiscMenuController();
+
+  /** Returns the current {@link SubtitleSelectionState}. */
+  @UnstableApi
+  SubtitleSelectionState getSubtitleSelectionState();
 
   /** Returns audio processing support for the currently initialized audio output. */
   @UnstableApi

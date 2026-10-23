@@ -33,6 +33,7 @@ import android.view.SurfaceView;
 import android.view.TextureView;
 import androidx.annotation.FloatRange;
 import androidx.annotation.IntRange;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.Clock;
@@ -2781,6 +2782,31 @@ public abstract class SimpleBasePlayer extends BasePlayer {
   public final boolean selectEdition(MediaEdition edition) {
     verifyApplicationThreadAndInitState();
     return handleSelectEdition(edition);
+  }
+
+  /**
+   * Returns the current disc menu state.
+   *
+   * <p>The default implementation returns {@link DiscMenuState#EMPTY}. Subclasses that support disc
+   * menus (e.g. via a {@link DiscMenuController}) may override this method to return their own
+   * state, and fire {@link Player#EVENT_DISC_MENU_STATE_CHANGED} with {@link
+   * Listener#onDiscMenuStateChanged(DiscMenuState)} when it changes.
+   */
+  @NonNull
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    return DiscMenuState.EMPTY;
+  }
+
+  /**
+   * Returns the {@link DiscMenuController} driving the disc menu, or {@code null} by default.
+   *
+   * <p>Subclasses that support disc menus should override this to return their controller.
+   */
+  @Nullable
+  @Override
+  public DiscMenuController getDiscMenuController() {
+    return null;
   }
 
   @Override

@@ -139,7 +139,8 @@ final class FfmpegVideoDecoder
             matrixCoefficients,
             colorRange,
             colorPrimaries,
-            colorTransfer);
+            colorTransfer,
+            /* sideData= */ null);
     if (nativeContext == 0) {
       throw new FfmpegDecoderException("Failed to initialize decoder.");
     }
@@ -310,6 +311,8 @@ final class FfmpegVideoDecoder
                 outputBuffer.decoderPrivate,
                 outputBuffer.width,
                 outputBuffer.height,
+                /* cropOffsetX= */ 0,
+                /* cropOffsetY= */ 0,
                 releaseTimeNs,
                 rotationDegrees);
       } finally {
@@ -407,6 +410,9 @@ final class FfmpegVideoDecoder
                 inputData,
                 inputData.position(),
                 inputData.remaining(),
+                /* sideData= */ null,
+                /* sideDataType= */ 0,
+                /* sideDataSize= */ 0,
                 inputBuffer.timeUs,
                 flags,
                 decodeLoadLevel);
@@ -606,7 +612,8 @@ final class FfmpegVideoDecoder
       int matrixCoefficients,
       int colorRange,
       int colorPrimaries,
-      int colorTransfer);
+      int colorTransfer,
+      @Nullable byte[] sideData);
 
   private native long ffmpegReset(long context);
 
@@ -624,6 +631,8 @@ final class FfmpegVideoDecoder
       long frame,
       int displayedWidth,
       int displayedHeight,
+      int cropOffsetX,
+      int cropOffsetY,
       long releaseTimeNs,
       int rotationDegrees);
 
@@ -632,6 +641,9 @@ final class FfmpegVideoDecoder
       ByteBuffer encodedData,
       int offset,
       int length,
+      @Nullable byte[] sideData,
+      int sideDataType,
+      int sideDataSize,
       long inputTimeUs,
       int flags,
       @DecodeLoadLevel int decodeLoadLevel);
@@ -640,4 +652,11 @@ final class FfmpegVideoDecoder
 
   private native int ffmpegReceiveFrame(
       long context, int outputMode, VideoDecoderOutputBuffer outputBuffer);
+
+  private native int ffmpegGetSurfaceOutputStatus(long context);
+
+  private native boolean ffmpegIsSurfaceOutputReady(long context);
+
+  private native int ffmpegRedrawFrame(
+      long context, Surface surface, int colorTransfer, int colorRange, long timestampNs);
 }

@@ -21,6 +21,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
 import androidx.annotation.GuardedBy;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.CueGroup;
@@ -463,6 +464,22 @@ public class ForwardingPlayer implements Player {
   @Override
   public boolean selectEdition(MediaEdition edition) {
     return player.selectEdition(edition);
+  }
+
+  /** Calls {@link Player#getDiscMenuState()} on the delegate and returns the result. */
+  @UnstableApi
+  @NonNull
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    return player.getDiscMenuState();
+  }
+
+  /** Calls {@link Player#getDiscMenuController()} on the delegate and returns the result. */
+  @UnstableApi
+  @Nullable
+  @Override
+  public DiscMenuController getDiscMenuController() {
+    return player.getDiscMenuController();
   }
 
   /** Calls {@link Player#getTrackSelectionParameters()} on the delegate and returns the result. */
@@ -978,6 +995,11 @@ public class ForwardingPlayer implements Player {
     @Override
     public void onMediaEditionsChanged(List<MediaEdition> editions) {
       listener.onMediaEditionsChanged(editions);
+    }
+
+    @Override
+    public void onDiscMenuStateChanged(@NonNull DiscMenuState state) {
+      listener.onDiscMenuStateChanged(state);
     }
 
     @Override

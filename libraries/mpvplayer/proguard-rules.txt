@@ -6,6 +6,7 @@
 }
 
 # libplayer resolves this bridge class and its Java callbacks by name.
--keep class is.xyz.mpv.MPVLib {
+-keep class is.xyz.mpv.** {
   *;
 }
+

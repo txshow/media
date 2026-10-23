@@ -201,6 +201,19 @@ public final class MpvAudioFilter {
           Util.formatInvariant("%s=limit=1.00:attack=5:release=50:level=0", target));
     }
 
+    @CanIgnoreReturnValue
+    public Builder addDynamicNormalization(String id, double target, double max) {
+      checkState(!buildCalled);
+      String dynaudnorm = target("dynaudnorm", id);
+      String targetValue = decimal(target, 3);
+      String maxValue = decimal(max, 2);
+      commands.add(command("target", targetValue, dynaudnorm));
+      commands.add(command("max", maxValue, dynaudnorm));
+      return addFilter(
+          Util.formatInvariant("%s=target=%s:max=%s", dynaudnorm, targetValue, maxValue),
+          Util.formatInvariant("%s=target=0.100:max=0.00", dynaudnorm));
+    }
+
     public MpvAudioFilter build() {
       checkState(!buildCalled);
       buildCalled = true;

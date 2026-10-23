@@ -82,19 +82,23 @@ public final class C {
   @UnstableApi public static final int PERCENTAGE_UNSET = -1;
 
   /**
-   * Decode mode for video playback. One of {@link #DECODE_SOFTWARE} or {@link #DECODE_HARDWARE}.
+   * Decode mode for video playback. One of {@link #DECODE_SOFTWARE}, {@link #DECODE_HARDWARE} or
+   * {@link #DECODE_SOFTWARE_CODEC}.
    */
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
-  @IntDef({DECODE_SOFTWARE, DECODE_HARDWARE})
+  @IntDef({DECODE_SOFTWARE, DECODE_HARDWARE, DECODE_SOFTWARE_CODEC})
   public @interface DecodeMode {}
 
-  /** Decode video using software decoders. */
+  /** Decode video using FFmpeg software decoders only. */
   public static final int DECODE_SOFTWARE = 0;
 
-  /** Decode video using platform hardware decoders. */
+  /** Decode video using platform hardware decoders, with software fallback. */
   public static final int DECODE_HARDWARE = 1;
+
+  /** Decode video using platform software MediaCodec decoders only (no FFmpeg). */
+  public static final int DECODE_SOFTWARE_CODEC = 2;
 
   /** The number of milliseconds in one second. */
   @UnstableApi public static final long MILLIS_PER_SECOND = 1_000L;

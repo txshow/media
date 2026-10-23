@@ -18,6 +18,7 @@ package androidx.media3.mpvplayer;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
+import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 
@@ -149,7 +150,81 @@ public final class MpvSubtitleOptions {
     private int secondaryTrack = SECONDARY_TRACK_OFF;
     private double secondaryPosition;
     private boolean secondaryOverrideAssStyles;
+    @Nullable private String fontsDirectory;
+    private float verticalOffset;
+    private float bitmapSubtitleBrightness = 1.0f;
+    private double secondaryVerticalOffset;
+    @Nullable private String fontFamily;
     private boolean buildCalled;
+
+    @CanIgnoreReturnValue
+    public Builder setFontsDirectory(String fontsDirectory) {
+      checkState(!buildCalled);
+      this.fontsDirectory = fontsDirectory;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setVerticalOffset(float verticalOffset) {
+      checkState(!buildCalled);
+      this.verticalOffset = verticalOffset;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setBitmapSubtitleBrightness(float bitmapSubtitleBrightness) {
+      checkState(!buildCalled);
+      this.bitmapSubtitleBrightness = bitmapSubtitleBrightness;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setSecondarySubtitlePosition(double secondaryPosition) {
+      checkState(!buildCalled);
+      this.secondaryPosition = secondaryPosition;
+      secondarySubtitleConfigured = true;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setSecondaryVerticalOffset(double secondaryVerticalOffset) {
+      checkState(!buildCalled);
+      this.secondaryVerticalOffset = secondaryVerticalOffset;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setSecondaryAssStyleOverride(boolean overrideAssStyles) {
+      checkState(!buildCalled);
+      this.secondaryOverrideAssStyles = overrideAssStyles;
+      secondarySubtitleConfigured = true;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setFontFamily(String fontFamily) {
+      checkState(!buildCalled);
+      this.fontFamily = fontFamily;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setDefaultStyle(
+        int foregroundColor,
+        int backgroundColor,
+        int edgeType,
+        int edgeColor,
+        float edgeWidth,
+        float shadowOffset) {
+      checkState(!buildCalled);
+      this.foregroundColor = foregroundColor;
+      this.backgroundColor = backgroundColor;
+      this.edgeType = edgeType;
+      this.edgeColor = edgeColor;
+      this.edgeSize = edgeWidth;
+      this.shadowOffset = shadowOffset;
+      return this;
+    }
 
     @CanIgnoreReturnValue
     public Builder setPosition(double position) {

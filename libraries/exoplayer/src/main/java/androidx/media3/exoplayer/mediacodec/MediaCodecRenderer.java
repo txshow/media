@@ -971,6 +971,12 @@ public abstract class MediaCodecRenderer extends BaseRenderer {
       }
       // We have a format.
       maybeInitCodecOrBypass();
+
+      // Check if decode mode has changed, and if so, re-initialize the codec with new ordering.
+      if (codec != null && MediaCodecUtil.consumeDecodeModeChanged()) {
+        drainAndReinitializeCodec();
+      }
+
       if (bypassEnabled) {
         TraceUtil.beginSection("bypassRender");
         while (bypassRender(positionUs, elapsedRealtimeUs)) {}

@@ -66,6 +66,8 @@ import androidx.media3.common.BasePlayer;
 import androidx.media3.common.C;
 import androidx.media3.common.C.TrackType;
 import androidx.media3.common.DeviceInfo;
+import androidx.media3.common.DiscMenuController;
+import androidx.media3.common.DiscMenuState;
 import androidx.media3.common.Effect;
 import androidx.media3.common.Format;
 import androidx.media3.common.IllegalSeekPositionException;
@@ -90,6 +92,8 @@ import androidx.media3.common.VideoSize;
 import androidx.media3.common.audio.AudioBecomingNoisyManager;
 import androidx.media3.common.text.Cue;
 import androidx.media3.common.text.CueGroup;
+import androidx.media3.common.text.SubtitleOffsets;
+import androidx.media3.common.text.SubtitleSelectionState;
 import androidx.media3.common.util.BackgroundThreadStateHandler;
 import androidx.media3.common.util.Clock;
 import androidx.media3.common.util.ConditionVariable;
@@ -255,6 +259,9 @@ import java.util.function.IntConsumer;
   private float unmuteVolume;
   private long audioOffsetMs;
   private long textOffsetMs;
+  private SubtitleOffsets subtitleOffsets = SubtitleOffsets.ZERO;
+  private DiscMenuState discMenuState = DiscMenuState.EMPTY;
+  @Nullable private DiscMenuController discMenuController;
   private boolean skipSilenceEnabled;
   private CueGroup currentCueGroup;
   @Nullable private VideoFrameMetadataListener videoFrameMetadataListener;
@@ -1986,6 +1993,50 @@ import java.util.function.IntConsumer;
   public Format getAudioFormat() {
     verifyApplicationThread();
     return audioFormat;
+  }
+
+  @Override
+  public SubtitleOffsets getSubtitleOffsets() {
+    verifyApplicationThread();
+    return subtitleOffsets;
+  }
+
+  @Override
+  public void setSubtitleOffsets(SubtitleOffsets offsets) {
+    verifyApplicationThread();
+    subtitleOffsets = offsets;
+  }
+
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    verifyApplicationThread();
+    return discMenuState;
+  }
+
+  @Override
+  @Nullable
+  public DiscMenuController getDiscMenuController() {
+    verifyApplicationThread();
+    return discMenuController;
+  }
+
+  @Override
+  public SubtitleSelectionState getSubtitleSelectionState() {
+    verifyApplicationThread();
+    return SubtitleSelectionState.EMPTY;
+  }
+
+  /**
+   * Updates the current {@link DiscMenuState} and notifies registered listeners. Package-visible so
+   * that disc navigation components can drive the state and event dispatch.
+   */
+  /* package */ void setDiscMenuState(DiscMenuState discMenuState) {
+    if (playerReleased || discMenuState.equals(this.discMenuState)) {
+      return;
+    }
+    this.discMenuState = discMenuState;
+    listeners.queueEvent(
+        Player.EVENT_DISC_MENU_STATE_CHANGED, l -> l.onDiscMenuStateChanged(discMenuState));
   }
 
   @Override

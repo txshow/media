@@ -20,3 +20,9 @@
 -keepclassmembers,allowoptimization class androidx.media3.decoder.Buffer {
   public final void setFlags(int);
 }
+
+# Reflected by DefaultRenderersFactory via Class.forName + getConstructor(8 args).
+# Without this rule R8 removes the public constructor and the reflection fails at runtime.
+-keep class androidx.media3.decoder.ffmpeg.FfmpegDolbyVisionP5Renderer {
+  public <init>(...);
+}

@@ -23,6 +23,7 @@ import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionParameters;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.RendererCapabilities;
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil;
 import java.util.Objects;
 
 /**
@@ -36,6 +37,7 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
   private static final String MEDIA_CODEC_VIDEO_RENDERER_NAME = "MediaCodecVideoRenderer";
   private static final String FFMPEG_AUDIO_RENDERER_NAME = "FfmpegAudioRenderer";
   private static final String FFMPEG_VIDEO_RENDERER_NAME = "FfmpegVideoRenderer";
+  private static final String FFMPEG_DOLBY_VISION_P5_RENDERER_NAME = "FfmpegDolbyVisionP5Renderer";
   private static final RendererDecodePreferences DEFAULT_RENDERER_DECODE_PREFERENCES =
       new RendererDecodePreferences(C.DECODE_HARDWARE, C.DECODE_HARDWARE);
 
@@ -98,6 +100,10 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     RendererDecodePreferences preferences = new RendererDecodePreferences(audioDecode, videoDecode);
     if (!preferences.equals(rendererDecodePreferences)) {
       rendererDecodePreferences = preferences;
+      // Notify MediaCodecUtil to reorder codec lists based on the new mode.
+      // This will also set the decodeModeChanged flag, which MediaCodec renderers check
+      // on each frame to re-initialize their codec with the new ordering.
+      MediaCodecUtil.setDecodeMode(videoDecode);
       invalidate(/* parameters= */ null);
     }
   }
@@ -130,7 +136,7 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
         group.type == C.TRACK_TYPE_AUDIO
             ? decodePreferences.audioDecode
             : decodePreferences.videoDecode;
-    if (decode == C.DECODE_HARDWARE) {
+    if (decode == C.DECODE_HARDWARE || decode == C.DECODE_SOFTWARE_CODEC) {
       return isMediaCodecRenderer(rendererCapability, group.type)
           && formatSupportLevel == C.FORMAT_HANDLED;
     } else if (decode == C.DECODE_SOFTWARE) {
@@ -140,11 +146,38 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     return false;
   }
 
+  /**
+   * @return Whether the renderer is allowed for the given decode mode.
+   *     <p>Mirrors official {@code fb0.D(rendererName, trackType, decodeMode)}:
+   *     <ul>
+   *       <li>{@link C#DECODE_HARDWARE} ({@code yb0.c}): all renderers allowed; FFmpeg may serve as
+   *           a fallback.
+   *       <li>{@link C#DECODE_SOFTWARE} ({@code yb0.o}): only the matching FFmpeg renderer.
+   *       <li>{@link C#DECODE_SOFTWARE_CODEC} ({@code yb0.i}): only MediaCodec renderers, and for
+   *           video additionally the Dolby Vision profile 5 renderer (official {@code fb0.C()}).
+   *       <li>any other mode: only MediaCodec renderers.
+   *     </ul>
+   */
   private static boolean isRendererAllowed(
       RendererCapabilities rendererCapability,
       @C.TrackType int trackType,
       @C.DecodeMode int decode) {
-    return decode != C.DECODE_SOFTWARE || isFfmpegRenderer(rendererCapability, trackType);
+    if (decode == C.DECODE_HARDWARE) {
+      // Official fb0.D: yb0.c -> return true. Every renderer (including FFmpeg) is allowed so that
+      // FFmpeg can act as a fallback for streams without a hardware decoder.
+      return true;
+    }
+    if (decode == C.DECODE_SOFTWARE) {
+      // Official fb0.D: yb0.o -> only FFmpeg renderers by name.
+      return isFfmpegRenderer(rendererCapability, trackType);
+    }
+    if (decode == C.DECODE_SOFTWARE_CODEC) {
+      // Official fb0.D: yb0.i -> C(): only MediaCodec; video additionally allows
+      // FfmpegDolbyVisionP5Renderer.
+      return isMediaCodecRenderer(rendererCapability, trackType);
+    }
+    // Default branch of official fb0.D: only MediaCodec renderers.
+    return isMediaCodecRenderer(rendererCapability, trackType);
   }
 
   private static boolean isMediaCodecRenderer(
@@ -153,7 +186,10 @@ public class DecodeTrackSelector extends DefaultTrackSelector {
     if (trackType == C.TRACK_TYPE_AUDIO) {
       return MEDIA_CODEC_AUDIO_RENDERER_NAME.equals(name);
     } else if (trackType == C.TRACK_TYPE_VIDEO) {
-      return MEDIA_CODEC_VIDEO_RENDERER_NAME.equals(name);
+      // Official fb0.C(): FfmpegDolbyVisionP5Renderer is folded into the MediaCodec-style set for
+      // video.
+      return MEDIA_CODEC_VIDEO_RENDERER_NAME.equals(name)
+          || FFMPEG_DOLBY_VISION_P5_RENDERER_NAME.equals(name);
     }
     return false;
   }

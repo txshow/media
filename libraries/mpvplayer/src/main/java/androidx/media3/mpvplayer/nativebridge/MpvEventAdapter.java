@@ -281,7 +281,7 @@ public final class MpvEventAdapter implements MPVLib.EventObserver {
   }
 
   @Override
-  public void eventCommandReply(long requestId, int error) {
+  public void eventCommandReply(long requestId, int error, long result) {
     playerEventHost.runOnPlayerLooper(
         () -> commandReplyListener.onReply(requestId, error));
   }

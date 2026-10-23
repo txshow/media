@@ -28,6 +28,8 @@ import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
+import androidx.media3.common.DiscMenuController;
+import androidx.media3.common.DiscMenuState;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaChapter;
 import androidx.media3.common.MediaEdition;
@@ -36,9 +38,15 @@ import androidx.media3.common.PlaybackException;
 import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.Player;
 import androidx.media3.common.SimpleBasePlayer;
+import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.TrackSelectionParameters;
+import androidx.media3.common.text.SubtitleContent;
+import androidx.media3.common.text.SubtitleOffsets;
+import androidx.media3.common.text.SubtitleSelectionState;
 import androidx.media3.common.util.ConditionVariable;
 import androidx.media3.common.util.Util;
+import androidx.media3.datasource.DataSource;
+import java.io.File;
 import androidx.media3.mpvplayer.audio.MpvAudioFilter;
 import androidx.media3.mpvplayer.audio.MpvAudioFocusManager;
 import androidx.media3.mpvplayer.core.MpvEffectController;
@@ -75,7 +83,7 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.util.List;
 
-public final class MpvPlayer extends SimpleBasePlayer {
+public final class MpvPlayer extends SimpleBasePlayer implements DiscMenuController {
 
   /** No audio output is currently initialized. */
   public static final int AUDIO_EFFECTS_UNAVAILABLE = 0;
@@ -149,6 +157,16 @@ public final class MpvPlayer extends SimpleBasePlayer {
   private @C.DecodeMode int decode;
   @Nullable private AudioOutputListener audioOutputListener;
   private boolean handlingPlayerCommand;
+  private MpvDecoderMode videoDecoderMode = MpvDecoderMode.AUTO;
+  private SubtitleOffsets subtitleOffsets = new SubtitleOffsets(0, 0);
+  private boolean subtitleContentEnabled;
+  private boolean secondaryTextAutoSelectionEnabled;
+  @Nullable private TrackSelectionOverride secondaryTextTrackSelectionOverride;
+  @Nullable private DataSource.Factory discDataSourceFactory;
+  private boolean verboseLoggingEnabled;
+  private int logListenerLevel;
+  @Nullable private LogListener logListener;
+  @Nullable private MpvSubtitleContentLoader subtitleContentLoader;
 
   private MpvPlayer(
       Context context, MpvPlayerConfig config, @C.DecodeMode int decode, Looper looper) {
@@ -369,6 +387,183 @@ public final class MpvPlayer extends SimpleBasePlayer {
     return !playerInfo.isReleased()
         && nativeLifecycle.isInitialized()
         && commandDispatcher.toggleGeneralStats();
+  }
+
+  /** Returns the current video decoder selection. */
+  public MpvDecoderMode getVideoDecoderMode() {
+    return videoDecoderMode;
+  }
+
+  /**
+   * Sets the video decoder selection.
+   *
+   * <p>Delegates to the existing {@link #setDecode(int)} mechanism: hardware selection maps to
+   * {@link C#DECODE_HARDWARE} and every other selection maps to {@link C#DECODE_SOFTWARE}.
+   */
+  public void setVideoDecoderMode(MpvDecoderMode mode) {
+    videoDecoderMode = mode;
+    setDecode(mode == MpvDecoderMode.HARDWARE ? C.DECODE_HARDWARE : C.DECODE_SOFTWARE);
+  }
+
+  /**
+   * Sets the {@link DataSource.Factory} used when loading disc/ISO sources.
+   *
+   * <p>The factory is retained for future disc-source wiring; the current mpv playback path loads
+   * media through its own native network stack.
+   */
+  public void setDiscDataSourceFactory(DataSource.Factory factory) {
+    discDataSourceFactory = factory;
+  }
+
+  /** Enables or disables verbose mpv logging. */
+  public void setVerboseLoggingEnabled(boolean enabled) {
+    verboseLoggingEnabled = enabled;
+  }
+
+  /**
+   * Registers a listener for mpv log messages at or above the given {@code level}. Passing {@code
+   * null} clears the listener.
+   *
+   * <p>Degraded implementation: the listener is stored; message delivery is left to a future
+   * implementation.
+   */
+  public void setLogListener(int level, @Nullable LogListener listener) {
+    logListenerLevel = level;
+    logListener = listener;
+  }
+
+  /**
+   * Loads the given scripts as startup scripts.
+   *
+   * <p>Degraded implementation: scripts are not loaded; returns {@code false} so callers can
+   * report the limitation.
+   */
+  public boolean setStartupScripts(List<File> scripts) {
+    return false;
+  }
+
+  /**
+   * Loads a script from the given path and reports completion to {@code callback}.
+   *
+   * <p>Degraded implementation: returns {@code false} without loading anything.
+   */
+  public boolean loadScript(String path, @Nullable LoadScriptCallback callback) {
+    return false;
+  }
+
+  /** Returns the named script data, or {@code null} when unavailable. */
+  @Nullable
+  public String getScriptData(String scriptId) {
+    return null;
+  }
+
+  /** Returns the current input bindings as a JSON array, or {@code null} when unavailable. */
+  @Nullable
+  public String getInputBindings() {
+    return null;
+  }
+
+  /** Unloads a previously loaded script client. */
+  public void unloadScript(long clientId) {}
+
+  /** Runs the given script binding. */
+  public boolean runScriptBinding(String binding) {
+    return false;
+  }
+
+  /** Stores the loader used to fetch external subtitle content. */
+  public void setSubtitleContentLoader(MpvSubtitleContentLoader loader) {
+    subtitleContentLoader = loader;
+  }
+
+  /** Returns the current subtitle track selection state (degraded: always empty). */
+  public SubtitleSelectionState getSubtitleSelectionState() {
+    return SubtitleSelectionState.EMPTY;
+  }
+
+  /** Returns the external subtitle content for the given selection (degraded: unsupported). */
+  public SubtitleContent getSubtitleContentForSelection(TrackSelectionOverride selection) {
+    return SubtitleContent.UNSUPPORTED;
+  }
+
+  /** Returns the primary/secondary subtitle offsets. */
+  public SubtitleOffsets getSubtitleOffsets() {
+    return subtitleOffsets;
+  }
+
+  /** Sets the primary/secondary subtitle offsets; the primary offset drives mpv text delay. */
+  public void setSubtitleOffsets(SubtitleOffsets offsets) {
+    subtitleOffsets = offsets;
+    runOnPlayerLooper(() -> playbackProperties.setTextDelayMs(offsets.primaryMs));
+  }
+
+  /** Enables or disables loading of external subtitle content. */
+  public void setSubtitleContentEnabled(boolean enabled) {
+    subtitleContentEnabled = enabled;
+  }
+
+  /** Returns whether the external subtitle content of the given format can be retried. */
+  public boolean canRetrySubtitleContent(Format format) {
+    return false;
+  }
+
+  /** Retries loading the external subtitle content of the given format (no-op when unsupported). */
+  public void retrySubtitleContent(Format format) {
+    // Degraded implementation: no external subtitle content pipeline.
+  }
+
+  /** Sets the secondary text track selection override. */
+  public void setSecondaryTextTrackSelectionOverride(@Nullable TrackSelectionOverride override) {
+    secondaryTextTrackSelectionOverride = override;
+  }
+
+  /** Enables or disables automatic secondary text track selection. */
+  public void setSecondaryTextTrackAutoSelectionEnabled(boolean enabled) {
+    secondaryTextAutoSelectionEnabled = enabled;
+    if (enabled) {
+      secondaryTextTrackSelectionOverride = null;
+    }
+  }
+
+  /** Resets the secondary text track selection to automatic mode. */
+  public void resetSecondaryTextTrackSelection() {
+    secondaryTextTrackSelectionOverride = null;
+    secondaryTextAutoSelectionEnabled = true;
+  }
+
+  @Override
+  public boolean open(String action, Callback callback) {
+    return false;
+  }
+
+  @Override
+  public boolean sendAction(String action) {
+    return false;
+  }
+
+  @Override
+  public boolean isActive() {
+    return false;
+  }
+
+  @Override
+  public boolean supportsPointer() {
+    return false;
+  }
+
+  @Override
+  public boolean isNavigationPlayback() {
+    return false;
+  }
+
+  @Override
+  public void close() {
+    // No disc navigation UI to close for mpv playback.
+  }
+
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    return DiscMenuState.EMPTY;
   }
 
   @Override
@@ -862,6 +1057,18 @@ public final class MpvPlayer extends SimpleBasePlayer {
     void onAudioOutputChanged();
   }
 
+  /** Listener for mpv log messages. */
+  public interface LogListener {
+
+    void onLogMessage(String prefix, int level, String text);
+  }
+
+  /** Callback for asynchronous script loading completion. */
+  public interface LoadScriptCallback {
+
+    void onLoaded(boolean success, long clientId);
+  }
+
   public static final class Builder {
 
     private final Context context;
@@ -887,6 +1094,13 @@ public final class MpvPlayer extends SimpleBasePlayer {
     public Builder setDecode(@C.DecodeMode int decode) {
       checkState(!buildCalled);
       this.decode = decode;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setVideoDecoderMode(MpvDecoderMode mode) {
+      checkState(!buildCalled);
+      this.decode = mode == MpvDecoderMode.HARDWARE ? C.DECODE_HARDWARE : C.DECODE_SOFTWARE;
       return this;
     }
 

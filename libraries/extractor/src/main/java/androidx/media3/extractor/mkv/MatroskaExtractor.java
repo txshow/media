@@ -105,14 +105,20 @@ public class MatroskaExtractor implements Extractor {
 
   /**
    * Flags controlling the behavior of the extractor. Possible flag values are {@link
-   * #FLAG_DISABLE_SEEK_FOR_CUES} and {#FLAG_EMIT_RAW_SUBTITLE_DATA}.
+   * #FLAG_DISABLE_SEEK_FOR_CUES}, {#FLAG_EMIT_RAW_SUBTITLE_DATA}, {#FLAG_DISABLE_HAGC_METADATA}
+   * and {#FLAG_DEFER_SEEK_FOR_CUES}.
    */
   @Documented
   @Retention(RetentionPolicy.SOURCE)
   @Target(TYPE_USE)
   @IntDef(
       flag = true,
-      value = {FLAG_DISABLE_SEEK_FOR_CUES, FLAG_EMIT_RAW_SUBTITLE_DATA, FLAG_DISABLE_HAGC_METADATA})
+      value = {
+        FLAG_DISABLE_SEEK_FOR_CUES,
+        FLAG_EMIT_RAW_SUBTITLE_DATA,
+        FLAG_DISABLE_HAGC_METADATA,
+        FLAG_DEFER_SEEK_FOR_CUES
+      })
   public @interface Flags {}
 
   /**
@@ -133,6 +139,15 @@ public class MatroskaExtractor implements Extractor {
 
   /** Flag to disable parsing of HAGC (ST 2094-50) metadata. */
   public static final int FLAG_DISABLE_HAGC_METADATA = 1 << 2; // 4
+
+  /**
+   * Flag to defer seeking for cues until the first seek is performed.
+   *
+   * <p>When set, the extractor does not seek to the cues element during initialization. Seeking for
+   * cues is deferred until a seek is actually requested, which can reduce startup latency for
+   * sources where the cues element is located far from the beginning of the file.
+   */
+  public static final int FLAG_DEFER_SEEK_FOR_CUES = 1 << 3; // 8
 
   /**
    * @deprecated Use {@link #newFactory(SubtitleParser.Factory)} instead.

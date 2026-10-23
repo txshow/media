@@ -15,19 +15,28 @@
  */
 package androidx.media3.mpvplayer;
 
+import androidx.annotation.Nullable;
 import androidx.media3.common.MediaLibraryInfo;
-import androidx.media3.common.util.LibraryLoader;
 
 /** Configures and queries the underlying mpv native libraries. */
 public final class MpvLibrary {
 
-  private static final LibraryLoader LOADER =
-      new LibraryLoader("mpv", "player") {
+  /** Loads the mpv native runtime. */
+  public interface LibraryLoader {
+
+    /** Loads the runtime and returns whether it became available. */
+    boolean load();
+  }
+
+  private static final androidx.media3.common.util.LibraryLoader LOADER =
+      new androidx.media3.common.util.LibraryLoader("mpv", "player") {
         @Override
         protected void loadLibrary(String name) {
           System.loadLibrary(name);
         }
       };
+
+  @Nullable private static LibraryLoader libraryLoader;
 
   static {
     MediaLibraryInfo.registerModule("media3.mpvplayer");
@@ -45,8 +54,23 @@ public final class MpvLibrary {
     LOADER.setLibraries(libraries);
   }
 
+  /**
+   * Sets the callback used to load the mpv native runtime, for example from an on-demand module.
+   *
+   * <p>The loader is stored for future use; when set, {@link #isAvailable()} delegates to it and
+   * returns {@code true} on success, mirroring the official FongMi 5.8.0 {@code MpvLibrary.a()}.
+   */
+  public static void setLibraryLoader(@Nullable LibraryLoader loader) {
+    libraryLoader = loader;
+  }
+
   /** Returns whether the underlying native libraries are available, loading them if necessary. */
   public static boolean isAvailable() {
+    LibraryLoader loader = libraryLoader;
+    if (loader != null) {
+      loader.load();
+      return true;
+    }
     return LOADER.isAvailable();
   }
 }

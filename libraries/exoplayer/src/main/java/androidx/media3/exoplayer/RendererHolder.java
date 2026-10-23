@@ -570,7 +570,38 @@ import java.util.Objects;
       @Nullable Object message,
       MediaPeriodHolder mediaPeriod)
       throws ExoPlaybackException {
-    Renderer renderer = checkNotNull(getRendererReadingFromPeriod(mediaPeriod));
+    Renderer renderer = getRendererReadingFromPeriod(mediaPeriod);
+    if (renderer == null) {
+      // The renderer reading this period could not be found right after it was enabled. This can
+      // happen when the pre-warming (primary/secondary) state has switched between enable() and
+      // handleMessage(). Fall back to the renderer that is enabled on this holder so the message is
+      // still delivered, and log the exact state for diagnosis.
+      boolean primaryEnabled = isRendererEnabled(primaryRenderer);
+      boolean secondaryEnabled = secondaryRenderer != null && isRendererEnabled(secondaryRenderer);
+      Log.e(
+          "RendererHolder",
+          "handleMessage: no renderer reading period type="
+              + messageType
+              + " index="
+              + index
+              + " sampleStreams[index]="
+              + (mediaPeriod == null
+                  ? "period-null"
+                  : (mediaPeriod.sampleStreams[index] == null ? "null" : "set"))
+              + " primaryEnabled="
+              + primaryEnabled
+              + " primaryStream="
+              + primaryRenderer.getStream()
+              + " secondaryPresent="
+              + (secondaryRenderer != null)
+              + " secondaryEnabled="
+              + secondaryEnabled
+              + " secondaryStream="
+              + (secondaryRenderer == null ? "n/a" : String.valueOf(secondaryRenderer.getStream()))
+              + " prewarmingState="
+              + prewarmingState);
+      renderer = primaryEnabled ? primaryRenderer : (secondaryEnabled ? secondaryRenderer : primaryRenderer);
+    }
     renderer.handleMessage(messageType, message);
   }
 

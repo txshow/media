@@ -26,6 +26,7 @@ import android.net.Uri;
 import androidx.annotation.Nullable;
 import androidx.annotation.RestrictTo;
 import androidx.media3.common.DolbyVisionOutputPolicy;
+import androidx.media3.datasource.DataSource;
 import androidx.media3.mpvplayer.options.MpvNetworkOptions;
 import androidx.media3.mpvplayer.options.MpvOptions;
 import androidx.media3.mpvplayer.options.MpvPlayerOptionDefaults;
@@ -164,6 +165,9 @@ public final class MpvPlayerConfig {
     @Nullable private String defaultUserAgent;
     @Nullable private String defaultHardwareDecode;
     @Nullable private String requestedPassthroughCodecs;
+    @Nullable private DataSource.Factory dataSourceFactory;
+    @Nullable private File defaultFontsDirectory;
+    @Nullable private File secondaryFontsDirectory;
     private @DolbyVisionOutputPolicy.Mode int dolbyVisionOutputPolicy =
         DolbyVisionOutputPolicy.AUTO;
     private boolean dolbyVisionOutputPolicySet;
@@ -203,6 +207,21 @@ public final class MpvPlayerConfig {
     public Builder setDefaultHardwareDecode(@Nullable String defaultHardwareDecode) {
       checkState(!buildCalled);
       this.defaultHardwareDecode = defaultHardwareDecode;
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setDataSourceFactory(DataSource.Factory dataSourceFactory) {
+      checkState(!buildCalled);
+      this.dataSourceFactory = checkNotNull(dataSourceFactory);
+      return this;
+    }
+
+    @CanIgnoreReturnValue
+    public Builder setDefaultFontDirectories(File fontsDirectory, File secondaryFontsDirectory) {
+      checkState(!buildCalled);
+      this.defaultFontsDirectory = checkNotNull(fontsDirectory);
+      this.secondaryFontsDirectory = checkNotNull(secondaryFontsDirectory);
       return this;
     }
 

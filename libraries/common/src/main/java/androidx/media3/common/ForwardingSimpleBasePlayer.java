@@ -19,6 +19,7 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.TextureView;
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.util.UnstableApi;
 import com.google.common.util.concurrent.Futures;
@@ -109,6 +110,20 @@ public class ForwardingSimpleBasePlayer extends SimpleBasePlayer {
   /** Returns the wrapped player. */
   protected final Player getPlayer() {
     return player;
+  }
+
+  @UnstableApi
+  @NonNull
+  @Override
+  public DiscMenuState getDiscMenuState() {
+    return player.getDiscMenuState();
+  }
+
+  @UnstableApi
+  @Nullable
+  @Override
+  public DiscMenuController getDiscMenuController() {
+    return player.getDiscMenuController();
   }
 
   @Override
