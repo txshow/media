@@ -27,6 +27,9 @@ public final class VideoTransform {
   /** The maximum allowed scale factor. */
   public static final float MAX_SCALE = 8.0f;
 
+  /** The identity transform: no scaling, no panning. */
+  public static final VideoTransform DEFAULT = new VideoTransform(1.0f, 1.0f, 0.0f, 0.0f);
+
   /** Horizontal scale factor (1.0 = no scaling). */
   public final float scaleX;
 

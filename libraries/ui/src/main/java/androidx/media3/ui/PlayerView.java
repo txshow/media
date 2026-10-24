@@ -28,6 +28,9 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
 import static java.lang.annotation.ElementType.TYPE_USE;
 
+import android.animation.Animator;
+import android.animation.AnimatorListenerAdapter;
+import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.content.res.Resources;
@@ -36,6 +39,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
@@ -332,6 +336,9 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
   @Nullable private Player player;
   @Nullable private DiscMenuController discMenuController;
   private VideoTransform videoTransform = new VideoTransform(1.0f, 1.0f, 0.0f, 0.0f);
+
+  /** Animation driving {@link #videoTransform} to a target transform, or {@code null} when idle. */
+  @Nullable private ValueAnimator videoTransformAnimator;
   private float videoAspectRatioOverride;
   private boolean useController;
 
@@ -1520,19 +1527,101 @@ public class PlayerView extends FrameLayout implements AdViewProvider {
 
   /**
    * Returns the current video transform (scale/pan), identity by default.
-   *
-   * <p>The transform is stored by this view; applying it to the rendering surface is left to a
-   * future implementation.
    */
   @UnstableApi
   public VideoTransform getVideoTransform() {
     return videoTransform;
   }
 
-  /** Stores the video transform (scale/pan). */
+  /**
+   * Sets the video transform (scale/pan) and applies it to the video surface immediately.
+   *
+   * <p>Any running {@link #animateVideoTransform} animation is stopped first.
+   */
   @UnstableApi
   public void setVideoTransform(VideoTransform transform) {
+    cancelVideoTransformAnimation();
     videoTransform = transform;
+    applyVideoTransform();
+  }
+
+  /**
+   * Returns the bounds of the rendered video content within this view, in view coordinates.
+   *
+   * <p>The returned rect follows the letter-boxed / pillarboxed content frame (the area the video
+   * actually occupies), falling back to the full view bounds when the content frame is absent.
+   */
+  @UnstableApi
+  public RectF getVideoBounds() {
+    if (contentFrame == null) {
+      return new RectF(0f, 0f, getWidth(), getHeight());
+    }
+    Rect rect = new Rect();
+    rect.set(0, 0, contentFrame.getWidth(), contentFrame.getHeight());
+    offsetDescendantRectToMyCoords(contentFrame, rect);
+    return new RectF(rect);
+  }
+
+  /**
+   * Animates the video transform from its current value to {@code target} over {@code duration}
+   * milliseconds.
+   *
+   * <p>The intermediate values are applied frame by frame to the video surface.
+   */
+  @UnstableApi
+  public void animateVideoTransform(final VideoTransform target, long duration) {
+    checkArgument(duration >= 0);
+    cancelVideoTransformAnimation();
+    final VideoTransform start = videoTransform;
+    ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+    videoTransformAnimator = animator;
+    animator.setDuration(duration);
+    animator.addUpdateListener(
+        animation -> {
+          float fraction = (float) animation.getAnimatedValue();
+          float scaleX = start.scaleX + (target.scaleX - start.scaleX) * fraction;
+          float scaleY = start.scaleY + (target.scaleY - start.scaleY) * fraction;
+          float panX = start.panX + (target.panX - start.panX) * fraction;
+          float panY = start.panY + (target.panY - start.panY) * fraction;
+          videoTransform = new VideoTransform(scaleX, scaleY, panX, panY);
+          applyVideoTransform();
+        });
+    animator.addListener(
+        new AnimatorListenerAdapter() {
+          @Override
+          public void onAnimationEnd(Animator animation) {
+            if (videoTransformAnimator == animation) {
+              videoTransformAnimator = null;
+            }
+          }
+        });
+    animator.start();
+  }
+
+  /** Stops any running video transform animation, leaving the transform at its current value. */
+  @UnstableApi
+  public void finishVideoTransformAnimation() {
+    cancelVideoTransformAnimation();
+  }
+
+  private void cancelVideoTransformAnimation() {
+    if (videoTransformAnimator != null) {
+      videoTransformAnimator.cancel();
+      videoTransformAnimator = null;
+    }
+  }
+
+  /** Applies the current {@link #videoTransform} to the video surface view. */
+  private void applyVideoTransform() {
+    if (surfaceView == null) {
+      return;
+    }
+    surfaceView.setPivotX(surfaceView.getWidth() / 2f);
+    surfaceView.setPivotY(surfaceView.getHeight() / 2f);
+    surfaceView.setScaleX(videoTransform.scaleX);
+    surfaceView.setScaleY(videoTransform.scaleY);
+    surfaceView.setTranslationX(videoTransform.panX * surfaceView.getWidth() * videoTransform.scaleX);
+    surfaceView.setTranslationY(videoTransform.panY * surfaceView.getHeight() * videoTransform.scaleY);
   }
 
   /** Returns the overridden video aspect ratio, or {@code 0} when no override is set. */
