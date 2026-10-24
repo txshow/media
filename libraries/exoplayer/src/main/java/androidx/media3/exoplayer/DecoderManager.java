@@ -108,8 +108,9 @@ public class DecoderManager {
         return C.DECODE_SOFTWARE_CODEC;
       case FFMPEG:
         return C.DECODE_SOFTWARE;
-      case HARDWARE:
       case AUTO:
+        return C.DECODE_HARDWARE;
+      case HARDWARE:
       default:
         return C.DECODE_HARDWARE;
     }

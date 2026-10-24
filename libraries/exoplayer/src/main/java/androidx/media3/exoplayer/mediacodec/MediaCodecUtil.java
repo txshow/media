@@ -258,12 +258,14 @@ public final class MediaCodecUtil {
   @GuardedBy("MediaCodecUtil.class")
   private static void sortByDecodeMode(ArrayList<MediaCodecInfo> decoderInfos) {
     if (decodeMode == C.DECODE_SOFTWARE_CODEC) {
-      // Software codec mode: prioritize software-only decoders
+      // Software codec mode: software-only decoders first (no filtering).
       sortByScore(
           decoderInfos,
-          decoderInfo -> decoderInfo.softwareOnly ? 2 : (decoderInfo.hardwareAccelerated ? 0 : 1));
-    } else if (decodeMode == C.DECODE_HARDWARE) {
-      // Hardware mode: prioritize hardware-accelerated decoders
+          decoderInfo -> decoderInfo.softwareOnly ? 2 : 0);
+      return;
+    }
+    if (decodeMode == C.DECODE_HARDWARE) {
+      // Hardware / default mode: prioritize hardware-accelerated decoders, software codec as fallback.
       sortByScore(
           decoderInfos,
           decoderInfo -> decoderInfo.hardwareAccelerated && !decoderInfo.softwareOnly ? 2 : (decoderInfo.softwareOnly ? 0 : 1));
